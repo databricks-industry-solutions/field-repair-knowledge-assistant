@@ -1,0 +1,98 @@
+# Agent Bricks assets — the part DAB cannot express natively.
+#
+# `databricks bundle schema` (CLI v1.3.0) has NO resource type for a Knowledge
+# Assistant or a Multi-Agent Supervisor; "knowledge_assistants", "agent" and
+# "supervisor" appear zero times. Only genie_spaces is native (see genie.yml).
+#
+# So the KA and MAS are built by running the existing scripts as job tasks. That is
+# a real trade-off, stated plainly: these resources get NO drift detection and are
+# NOT removed by `bundle destroy`. They are created and updated idempotently by the
+# scripts, which is the same guarantee the manual path had.
+#
+# Run AFTER the data pipeline — the KA cannot attach to rd_tasks_serving until that
+# table exists with CDF and a metadata struct.
+
+resources:
+  jobs:
+    fis_agents:
+      name: "[${bundle.target}] FIS agents (KA + Genie config + Supervisor)"
+      description: >-
+        Builds/updates the Agent Bricks assets that DAB has no resource type for.
+        Idempotent: reuses assets by display name, PATCHes instructions, attaches
+        sources and examples only when absent.
+
+      environments:
+        - environment_key: serverless
+          spec:
+            client: "3"
+            dependencies:
+              - requests
+
+      max_concurrent_runs: 1
+
+      tasks:
+        # The serving-backed KA + Genie space. Also the safest single entry point:
+        # check_prereqs() fails fast if the serving table is missing metadata/CDF.
+        - task_key: serving_agents
+          description: >-
+            KA (rd_tasks_serving.ka_content + glossary) and the Genie space over
+            rd_tasks_serving_analytics. Verifies instruction + example parity with
+            the live KA — the drift that once cost 6.4 -> 1.2 avg citations.
+          environment_key: serverless
+          spark_python_task:
+            python_file: ../src/deploy/build_serving_agents.py
+            parameters:
+              - --catalog
+              - ${var.catalog}
+              - --schema
+              - ${var.schema}
+              - --warehouse-id
+              - ${var.warehouse_id}
+
+        # The supervisor routes KA + Genie + glossary_lookup. Built after the KA so
+        # the endpoint it registers already exists.
+        - task_key: supervisor
+          description: Multi-Agent Supervisor over KA + Genie + the glossary_lookup UC function.
+          depends_on:
+            - task_key: serving_agents
+          environment_key: serverless
+          spark_python_task:
+            python_file: ../src/deploy/build_supervisor.py
+            parameters:
+              - --catalog
+              - ${var.catalog}
+              - --schema
+              - ${var.schema}
+              - --warehouse-id
+              - ${var.warehouse_id}
+
+      tags:
+        project: fis-knowledge-agent
+        layer: agents
+
+    # --- Post-deploy step DAB cannot express -------------------------------
+    # The front-door app needs `user_api_scopes: [serving.serving-endpoints]` so it
+    # calls the MAS on behalf of the signed-in user (OBO). The App resource schema
+    # has no field for it, so frontdoor/deploy.py still owns that step. Kept as a
+    # job so `bundle run` can finish the job the bundle starts.
+    fis_frontdoor_authz:
+      name: "[${bundle.target}] FIS front door — bind OBO scopes"
+      description: >-
+        Applies user_api_scopes + the serving-endpoint resource binding to the
+        front-door app, then verifies RUNNING. Required because the DAB App
+        resource cannot express user authorization scopes.
+      environments:
+        - environment_key: serverless
+          spec:
+            client: "3"
+            dependencies:
+              - requests
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: bind_obo
+          environment_key: serverless
+          spark_python_task:
+            python_file: ../src/deploy/frontdoor_deploy.py
+      tags:
+        project: fis-knowledge-agent
+        layer: apps

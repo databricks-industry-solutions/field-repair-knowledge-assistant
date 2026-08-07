@@ -1,0 +1,34 @@
+[
+  {
+    "question": "In R&DTASK0001006 the term \"CA\" is used repeatedly — what does it mean?",
+    "guideline": "Should resolve CA to Controller Application, HEDGE the definition (\"most likely\", \"could refer to\"), and cite grounding beyond that single ticket — the glossary and/or other tickets where CA co-occurs. Must NOT rely on R&DTASK0001006 alone."
+  },
+  {
+    "question": "What does WPS refer to in the roadside power tickets?",
+    "guideline": "Should link WPS to the NetBooter networked power controller (same role), hedge, and cite the glossary and/or tickets. Should note WPS and NetBooter are used interchangeably."
+  },
+  {
+    "question": "What does 'Vimba' mean and where does it show up?",
+    "guideline": "Should identify Vimba as camera viewer/SDK tooling (Allied Vision), hedge, cite the glossary and/or co-occurring camera tickets, and avoid asserting an unsourced definition."
+  },
+  {
+    "question": "A WIM site is reporting zero or implausible axle weights. Have we seen this before, and what fixed it?",
+    "guideline": "Should return one or more prior WIM zero/implausible-weight cases, cite each ticket number, and summarize the actual resolution (e.g. sensor/connector/calibration). Most-relevant case first."
+  },
+  {
+    "question": "An AUR camera at a new site is failing to capture. What similar cases exist and how were they resolved?",
+    "guideline": "Should surface prior AUR/imaging failure tickets with citations, describe the fix that worked, and indicate whether the match is by symptom, equipment, or site. Should hedge if no close analog exists."
+  },
+  {
+    "question": "An HTS Controller Web Application keeps crashing. What prior cases exist and how were they resolved?",
+    "guideline": "Should identify prior HTS/Controller Application web-app crash tickets by number, note whether the cause was software/config vs hardware, and cite each. Should not fabricate a pattern from a single ticket."
+  },
+  {
+    "question": "Have any sites needed the roadside equipment power-cycled remotely, and how was it done?",
+    "guideline": "Should retrieve tickets involving NetBooter/WPS remote power-cycling, cite them, and describe the procedure used. Should connect WPS and NetBooter as the same role."
+  },
+  {
+    "question": "What are the recurring issues at our New Mexico sites, and how should we approach them?",
+    "guideline": "Should name specific ticket numbers forming the pattern, SEPARATE software/config causes from hardware/aging-equipment causes, and end with a prescriptive direction (patch vs replace vs escalate). Every claim cited."
+  }
+]

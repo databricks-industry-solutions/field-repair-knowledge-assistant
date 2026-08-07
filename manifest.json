@@ -1,0 +1,7 @@
+{
+  "id": "agent-troubleshooting-knowledge-assistant",
+  "name": "Agent: Field Troubleshooting Knowledge Assistant",
+  "customer": "",
+  "industry": "Manufacturing",
+  "narrative": "You run a ~10-person R&D support team for roadside truck-screening equipment. Ten years of troubleshooting history sits in ServiceNow, and it is effectively write-only: the engineer who fixed a weigh-in-motion scale reporting zero weights in New Mexico last year has left, and the ticket that explains how is unfindable among thousands.\n\nA field engineer facing an open task asks in plain English: \"A WIM site is reporting 0 weights \u2014 have we seen this before and what fixed it?\" The agent retrieves the most similar prior cases, cites the exact ticket numbers, and gives lowest-effort-first next steps. Ask instead \"who is our domain expert for WIM issues?\" or \"which open tasks should we triage first?\" and the same conversation routes to SQL over the structured columns rather than semantic search.\n\nThe interesting part is the governance: the agent's controlled vocabulary is not hardcoded. A curated glossary of approved terms drives both the LLM enrichment enums and the agent's term disambiguation \u2014 so a term is extractable only once it is approved, and the vocabulary is auditable rather than buried in a prompt."
+}

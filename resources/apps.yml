@@ -1,0 +1,28 @@
+# The front-door app.
+#
+# Resource bindings are declared HERE (native `resources:` on the app), while the
+# env-var wiring stays in the app's own app.yaml via `valueFrom: <resource key>`.
+# The key below MUST match the valueFrom key in that file:
+#   frontdoor/app.yaml -> valueFrom: serving-endpoint
+#
+# The front door needs USER AUTHORIZATION (OBO) so it calls the MAS as the signed-in
+# engineer, never as the app service principal. DAB does not express the
+# user_api_scopes field, so frontdoor/deploy.py still owns that one step — see the
+# note in jobs_agents.yml.
+
+resources:
+  apps:
+    frontdoor:
+      name: fis-rnd-frontdoor
+      description: >-
+        FIS R&D Knowledge Agent front door. Chat UI over the Multi-Agent
+        Supervisor, called on behalf of the signed-in user (OBO).
+      source_code_path: ../frontdoor
+      resources:
+        # Bound BY NAME to the existing warm MAS endpoint. Never re-create it:
+        # re-creation resets the per-tile supervisor authorization.
+        - name: serving-endpoint
+          description: Multi-Agent Supervisor endpoint (KA + Genie + glossary_lookup).
+          serving_endpoint:
+            name: ${var.mas_endpoint_name}
+            permission: CAN_QUERY

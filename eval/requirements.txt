@@ -1,0 +1,28 @@
+# FIS AI Knowledge Agent — Phase 7 evaluation harness dependencies.
+#
+# This is a REPRODUCIBILITY / documentation pin, not a new install: MLflow 3.10.1
+# is already present in the local Python env (RESEARCH: Package Legitimacy Audit —
+# all packages approved, no new third-party package introduced by this phase).
+#
+# mlflow[databricks] >=3.9.0 satisfies every skill version gate:
+#   evaluate (>=3.1), optimize_prompts (>=3.5), UC trace ingestion (>=3.9).
+mlflow[databricks]>=3.9.0
+
+# The Databricks-managed LLM judge (Correctness scorer, model="databricks") runs
+# server-side and needs the first-party `databricks.agents` client. Legitimate
+# Databricks package (56 releases on PyPI, prescribed by the agent-evaluation
+# skill). Not preinstalled in the base env, so this eval harness installs it in a
+# throwaway venv (base Python is PEP 668 externally-managed).
+databricks-agents>=1.0.0
+
+# Already satisfied by frontdoor/requirements.txt (listed here for a standalone
+# throwaway-venv install of this eval harness):
+databricks-sdk>=0.30.0
+requests
+
+# Repro (base Python is PEP 668 externally-managed — install in a throwaway venv):
+#   python3 -m venv /tmp/fis_eval_venv && \
+#   WHENEVER_NO_BUILD_RUST_EXT=1 /tmp/fis_eval_venv/bin/pip install -r eval/requirements.txt
+# The WHENEVER_NO_BUILD_RUST_EXT flag is only needed on Python 3.14 (no prebuilt
+# `whenever` wheel yet → falls back to its pure-Python impl instead of needing a
+# Rust toolchain). `whenever` is a transitive dep of databricks-agents.

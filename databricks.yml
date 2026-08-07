@@ -1,0 +1,103 @@
+# FIS AI Knowledge Agent — Databricks Asset Bundle
+#
+# Packages the whole demo: UC objects, the data pipeline, the Genie space, the two
+# apps, and the Agent Bricks assets.
+#
+# WHAT IS NATIVE vs JOB-WRAPPED
+# ------------------------------
+# DAB has no resource type for Agent Bricks Knowledge Assistants or the
+# Multi-Agent Supervisor. Verified against `databricks bundle schema` (CLI v1.3.0):
+# the resource list is alerts, apps, catalogs, clusters, dashboards,
+# database_*, experiments, external_locations, genie_spaces, jobs,
+# model_serving_endpoints, models, pipelines, postgres_*, quality_monitors,
+# registered_models, schemas, secret_scopes, sql_warehouses,
+# synced_database_tables, vector_search_*, volumes.
+# "knowledge_assistants", "agent" and "supervisor" appear ZERO times.
+#
+# So:
+#   native      — schema, volume, genie_space, the two apps
+#   job-wrapped — the data pipeline, and the KA + MAS builds (existing idempotent
+#                 scripts run as job tasks)
+#
+# RETARGETING
+# -----------
+# The build scripts resolve catalog/schema/warehouse through src/deploy/env.py,
+# which reads --catalog/--schema/--warehouse-id flags (passed by the job tasks) or
+# FIS_CATALOG / FIS_SCHEMA / FIS_WAREHOUSE_ID. Defaults are NEUTRAL — there is no
+# default warehouse — so nothing silently writes into someone else's catalog.
+
+bundle:
+  name: troubleshooting-knowledge-agent
+
+include:
+  - resources/*.yml
+
+# The apps are deployed via source_code_path, which uploads the WHOLE directory.
+# Without these excludes the bundle ships 214MB of junk: app/.venv (78M),
+# app/frontend/node_modules (64M) and frontdoor/frontend/node_modules (71M).
+# frontend/dist IS required (it is the built SPA the FastAPI app serves), so only
+# node_modules is excluded, never dist.
+# `bundle validate` warns that these two match nothing — that is EXPECTED in a clean
+# checkout and they must stay. The moment someone runs `npm install` or creates a
+# venv under frontdoor/, source_code_path would otherwise upload ~200MB of junk.
+# frontend/dist IS required (it is the built SPA the FastAPI app serves) — never
+# exclude dist.
+sync:
+  exclude:
+    - "**/.venv/**"
+    - "**/node_modules/**"
+    - "**/__pycache__/**"
+    - "**/*.pyc"
+    - "**/frontend/src/**"
+
+variables:
+  catalog:
+    description: UC catalog holding every FIS asset.
+    default: main
+  schema:
+    description: UC schema inside the catalog.
+    default: troubleshooting_knowledge_agent
+  warehouse_id:
+    description: >-
+      Serverless SQL warehouse that runs the pipeline SQL and backs Genie.
+      REQUIRED — pass --var warehouse_id=<id>. AI Functions do not run on
+      SQL Warehouse Classic.
+    # Deliberately no default and no `lookup:`. A lookup would force a workspace
+    # API call during `bundle validate`, which breaks offline/CI validation and
+    # fails confusingly against the wrong profile.
+    default: ""
+  # The MAS endpoint is created by Agent Bricks, not by this bundle. The front-door
+  # app binds it BY NAME — never re-create it, that resets the per-tile
+  # authorization (Phase 05 note).
+  mas_endpoint_name:
+    description: >-
+      Multi-Agent Supervisor serving endpoint, bound BY NAME to the app. Created by
+      the fis_agents job (Agent Bricks), NOT by this bundle — never re-create it, that
+      resets the per-tile authorization. Set this to the endpoint the job reports.
+    default: ""  # set after the fis_agents job creates the supervisor
+
+targets:
+  # Set your workspace via the CLI profile (-p / DATABRICKS_CONFIG_PROFILE) rather
+  # than pinning a host here, so this template is portable. `mode: development`
+  # prefixes resource names with the deploying user, which keeps two engineers on
+  # the same workspace from clobbering each other.
+  dev:
+    default: true
+    mode: development
+
+  # Shared demo assets: no name prefixing, so the Genie space and app keep the
+  # identities the Supervisor and front door reference.
+  demo:
+    mode: production
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}
+    # production mode requires an explicit run_as. The deploying user is correct
+    # here because the KA/Supervisor builds need that user's Agent Bricks perms.
+    run_as:
+      user_name: ${workspace.current_user.userName}
+    # /Workspace/Shared is writable by all workspace users, so DAB warns unless the
+    # broad access is declared deliberately. It IS deliberate: the demo assets are
+    # shared with the team.
+    permissions:
+      - level: CAN_MANAGE
+        group_name: users

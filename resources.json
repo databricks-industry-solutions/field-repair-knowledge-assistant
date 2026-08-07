@@ -1,0 +1,21 @@
+{
+    "short_description": "Ten years of siloed R&D troubleshooting tickets become a cited, actionable agent. Ask \"has this happened before?\" and get prior cases with ticket numbers; ask \"who's the expert?\" and the same conversation routes to SQL. An SME-curated glossary drives the vocabulary — no hardcoded terms.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "ai-functions",
+            "unity-catalog",
+            "knowledge-assistant",
+            "genie",
+            "supervisor-agent",
+            "app-python",
+            "lakeflow-jobs"
+        ],
+        "talking_track": [
+            "vector-search",
+            "model-serving",
+            "aibi-dashboards"
+        ]
+    },
+    "created_resources": {}
+}

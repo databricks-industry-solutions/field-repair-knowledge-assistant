@@ -1,0 +1,32 @@
+# Unity Catalog foundations: the schema every asset lives in, and the Volume the
+# KA reads its acronym glossary from.
+#
+# The catalog itself is NOT declared here. It already exists in the demo workspace
+# and is shared with other projects, so having the bundle own (and be able to
+# destroy) it would be wrong.
+
+resources:
+  schemas:
+    fis:
+      catalog_name: ${var.catalog}
+      name: ${var.schema}
+      comment: >-
+        FIS AI Knowledge Agent demo. Ticket corpus, enrichment gold layer, the
+        rd_tasks_serving table that backs BOTH the Knowledge Assistant and Genie,
+        and the SME-curated glossary.
+
+  volumes:
+    glossary:
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      name: glossary
+      volume_type: MANAGED
+      comment: >-
+        Curated FIS acronym glossary (glossary.md). Second KA knowledge source.
+        The KA's files source takes the DIRECTORY path, not the file path.
+      # Volumes take `grants`, not `permissions` — different shape from other
+      # resource types.
+      grants:
+        - principal: account users
+          privileges:
+            - READ_VOLUME

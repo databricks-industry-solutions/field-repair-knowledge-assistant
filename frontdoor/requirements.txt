@@ -1,0 +1,8 @@
+# Front-door Databricks App runtime deps (Phase 06).
+# Zero net-new third-party deps vs the 04.1 app except `requests` (mainstream,
+# RESEARCH Package Legitimacy Audit = Approved).
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+databricks-sdk>=0.30.0
+pydantic>=2.0.0
+requests>=2.31

@@ -1,0 +1,3 @@
+node_modules/
+*.tsbuildinfo
+# dist/ is intentionally committed — the FastAPI backend serves frontend/dist (06-05 deploy).

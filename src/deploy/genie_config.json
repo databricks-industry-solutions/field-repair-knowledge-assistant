@@ -1,0 +1,131 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      { "question": ["How many CA tasks are there?"] },
+      { "question": ["How many ATIS tasks are there?"] },
+      { "question": ["Among open tasks, which are the highest priority given status, age, and note activity?"] },
+      { "question": ["Which tasks show the strongest delay or complexity signals (duration and note entries)?"] },
+      { "question": ["Who is the domain expert for WIM issues?"] }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "serverless_stable_l26d62_catalog.fis_knowledge_agent.rd_tasks_gold_analytics",
+        "description": [
+          "PURPOSE: Curated analytics view — one row per FIS R&D task (223 rows) enriched by LLM into canonical structured columns plus a meaning-segmented description. Use for counts, durations, expert-finding, priority and site-pattern analysis. ",
+          "GRAIN: one row per task `task_number` (e.g. R&DTASK0001006). ",
+          "ARRAY COLUMNS: `systems_involved`, `hardware_mentioned`, `vendors` are ARRAYS — filter membership with array_contains(). ",
+          "TEXT COLUMNS: `title`, `summary`, `customer_impact`, `troubleshooting`, `recommendation`, `root_cause`, `resolution` carry free text — match jargon with ILIKE. ",
+          "FILTER RULE (critical): the caller passes a domain term with its `category`. A term is a `systems_involved` value ONLY if category=system → array_contains(systems_involved,'<term>'). For ANY OTHER category (software, hardware, vendor, process, …) the term is NOT in the arrays → match it in the TEXT columns with ILIKE '%term%'. Never put a non-system term in array_contains — it returns a false 0."
+        ],
+        "column_configs": [
+          { "column_name": "assigned_to", "synonyms": ["owner", "assignee", "engineer", "domain expert"], "description": ["R&D team member who owns the task. A 'domain expert' for an area = the assigned_to who has resolved (is_closed=TRUE) the most tasks matching the filter."] },
+          { "column_name": "duration_days", "synonyms": ["duration", "days to resolve", "age", "how long"], "description": ["Days between first and last activity. Higher = longer to resolve / more complex."] },
+          { "column_name": "hardware_mentioned", "synonyms": ["hardware", "components"], "description": ["ARRAY of hardware/components mentioned. Filter with array_contains()."] },
+          { "column_name": "is_closed", "synonyms": ["closed", "resolved", "done"], "description": ["TRUE if status starts with Closed. Open tasks = is_closed=FALSE."] },
+          { "column_name": "location_state", "synonyms": ["state", "province", "region"], "description": ["2-letter US state / Canadian province code of the site. The model already knows full-name to code mapping; do NOT hardcode it."] },
+          { "column_name": "num_note_entries", "synonyms": ["note entries", "back and forth", "notes"], "description": ["Count of dated note entries; proxy for back-and-forth / difficulty. Higher = more complex."] },
+          { "column_name": "priority_level", "synonyms": ["priority", "urgency"], "description": ["Integer 1..4 where 1 is the HIGHEST priority (Critical) and 4 the lowest. ORDER BY priority_level ASC to surface the most urgent first."] },
+          { "column_name": "problem_category", "synonyms": ["category", "problem type", "issue type"], "description": ["hardware_failure, software_crash, network_connectivity, calibration, image_quality, power, configuration, other."] },
+          { "column_name": "status", "synonyms": ["state", "task state"], "description": ["Open, Pending, Closed Complete, Closed Skipped, Closed Incomplete. Open tasks = is_closed=FALSE (or status IN ('Open','Pending'))."] },
+          { "column_name": "systems_involved", "synonyms": ["systems", "screening systems"], "description": ["ARRAY of screening systems (category=system terms only, e.g. ALPR, ATIS, ATPS, AUR, HTS, OVC, SRIS, SmartLoop, WIM). Filter a SYSTEM term with array_contains(systems_involved,'<term>'). A non-system term (e.g. CA) is NOT here — match it in TEXT columns with ILIKE."] },
+          { "column_name": "task_number", "synonyms": ["task", "ticket", "task id", "ticket id", "case", "number"], "description": ["R&D task id, e.g. R&DTASK0001070. Unique key."] },
+          { "column_name": "vendors", "synonyms": ["vendor", "manufacturer", "supplier"], "description": ["ARRAY of vendors (category=vendor terms, e.g. Neology, Kistler, PIPS). Filter with array_contains()."] }
+        ]
+      }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "content": [
+          "This space covers Fleetworthy R&D tasks for highway truck-screening sites (one row per task in rd_tasks_gold_analytics).\n",
+          "\n",
+          "FILTERING RULE (the one rule that must never be violated):\n",
+          "- `systems_involved`, `hardware_mentioned`, and `vendors` are ARRAYS. The caller passes each domain term with its `category`.\n",
+          "- If category=system, the term is a `systems_involved` value → filter with array_contains(systems_involved, '<term>').\n",
+          "- For ANY OTHER category (software, hardware, vendor, process, …), the term is NOT in the arrays → match it in the TEXT columns (title, summary, customer_impact, troubleshooting, recommendation, root_cause, resolution) with ILIKE '%term%'.\n",
+          "- Never put a non-system term in array_contains — it returns a false 0. (Example: CA is category=software, so 'how many CA tasks' must match CA in the TEXT columns with ILIKE, NOT array_contains(systems_involved,'CA') which is a false 0.)\n",
+          "\n",
+          "EXPERT-FINDING:\n",
+          "- A 'domain expert' for an area = the `assigned_to` who has resolved (is_closed=TRUE) the most tasks matching the filter.\n",
+          "\n",
+          "DELAY / COMPLEXITY:\n",
+          "- 'Longer to resolve' / 'complexity' = high `duration_days` and/or high `num_note_entries`.\n",
+          "\n",
+          "OPEN TASKS & PRIORITY:\n",
+          "- Open tasks = `is_closed`=FALSE. `priority_level` is an integer where 1 is the HIGHEST priority; ORDER BY duration_days DESC, priority_level ASC to surface the oldest + most urgent first.\n",
+          "\n",
+          "OUTPUT: prefer clear counts and list `task_number` in answers."
+        ]
+      }
+    ],
+    "example_question_sqls": [
+      {
+        "question": ["How many CA tasks are there?"],
+        "sql": [
+          "-- CA is category=software (glossary): NOT a systems_involved value, so\n",
+          "-- array_contains(systems_involved,'CA') is a false 0. Match CA as a\n",
+          "-- standalone token in the TEXT columns instead.\n",
+          "SELECT count(*) AS ca_tasks\n",
+          "FROM serverless_stable_l26d62_catalog.fis_knowledge_agent.rd_tasks_gold_analytics\n",
+          "WHERE title ILIKE '%CA%' OR summary ILIKE '%CA%' OR customer_impact ILIKE '%CA%'\n",
+          "   OR troubleshooting ILIKE '%CA%' OR recommendation ILIKE '%CA%'\n",
+          "   OR root_cause ILIKE '%CA%' OR resolution ILIKE '%CA%'"
+        ]
+      },
+      {
+        "question": ["How many ATIS tasks are there?"],
+        "sql": [
+          "-- ATIS is category=system: it IS a systems_involved value, so filter the\n",
+          "-- array. Do NOT switch system terms to ILIKE.\n",
+          "SELECT count(*) AS atis_tasks\n",
+          "FROM serverless_stable_l26d62_catalog.fis_knowledge_agent.rd_tasks_gold_analytics\n",
+          "WHERE array_contains(systems_involved, 'ATIS')"
+        ]
+      },
+      {
+        "question": ["Among open tasks, which are the highest priority given status, age, and note activity?"],
+        "sql": [
+          "SELECT task_number, location_state, location_site, priority_level, status,\n",
+          "       duration_days, num_note_entries\n",
+          "FROM serverless_stable_l26d62_catalog.fis_knowledge_agent.rd_tasks_gold_analytics\n",
+          "WHERE is_closed = FALSE\n",
+          "ORDER BY duration_days DESC, priority_level ASC"
+        ]
+      },
+      {
+        "question": ["Who is the domain expert for WIM issues?"],
+        "sql": [
+          "-- WIM is category=system → array filter; expert = assigned_to with the most\n",
+          "-- resolved (is_closed) matching tasks.\n",
+          "SELECT assigned_to, count(*) AS resolved_wim_tasks\n",
+          "FROM serverless_stable_l26d62_catalog.fis_knowledge_agent.rd_tasks_gold_analytics\n",
+          "WHERE array_contains(systems_involved, 'WIM') AND is_closed = TRUE\n",
+          "GROUP BY assigned_to\n",
+          "ORDER BY resolved_wim_tasks DESC"
+        ]
+      }
+    ],
+    "sql_snippets": {
+      "filters": [
+        {
+          "sql": ["rd_tasks_gold_analytics.is_closed = FALSE"],
+          "display_name": "Open tasks",
+          "instruction": ["Use this filter to restrict to open/unresolved tasks (is_closed=FALSE)."],
+          "synonyms": ["open tasks", "unresolved", "still open"]
+        }
+      ],
+      "measures": [
+        {
+          "sql": ["count(*)"],
+          "display_name": "Task count",
+          "instruction": ["Number of tasks matching the filter. For a SYSTEM term (category=system) filter with array_contains(systems_involved,'<term>'); for any non-system term match the TEXT columns with ILIKE — never array_contains a non-system term (false 0)."],
+          "synonyms": ["how many", "count", "number of tasks"]
+        }
+      ]
+    }
+  }
+}

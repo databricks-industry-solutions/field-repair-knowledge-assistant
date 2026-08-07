@@ -1,0 +1,17 @@
+command:
+  - "python"
+  - "-m"
+  - "uvicorn"
+  - "app:app"
+  - "--host"
+  - "0.0.0.0"
+  - "--port"
+  - "8000"
+
+env:
+  # Model Serving Endpoint resource binding. deploy.py binds a `serving-endpoint`
+  # resource (key `serving-endpoint`) → the warm MAS `mas-f5fc28b0-endpoint` with
+  # permission CAN_QUERY; the runtime injects the endpoint NAME here. server/config.py
+  # falls back to the hardcoded default for local dev / portability.
+  - name: MAS_ENDPOINT_NAME
+    valueFrom: serving-endpoint

@@ -1,0 +1,28 @@
+# Genie space — the ONE resource in this demo that Agent Bricks exposes natively
+# to DAB (`genie_spaces`).
+#
+# serialized_space is exported from the live, tuned space rather than hand-written:
+# it carries the text-to-SQL steering that took real iteration to get right (the
+# array-vs-text filter rule that stops `array_contains(systems_involved,'CA')`
+# returning a false 0, the 4 certified queries, the column synonyms).
+# Re-export after tuning in the console:
+#
+#   databricks api get \
+#     "/api/2.0/genie/spaces/<id>?include_serialized_space=true" \
+#     -p serverless-stable \
+#     | python3 -c "import json,sys; print(json.load(sys.stdin)['serialized_space'])" \
+#     > src/genie/fis_rnd_serving.json
+#
+# A plain GET omits serialized_space entirely — the query param is required.
+
+resources:
+  genie_spaces:
+    fis_rnd_serving:
+      title: FIS R&D Tickets (serving)
+      description: >-
+        FIS R&D task analytics over the consolidated rd_tasks_serving table — the
+        SAME physical rows the Knowledge Assistant retrieves from. Counts,
+        durations, expert-finding, priority triage and site-pattern analysis.
+      warehouse_id: ${var.warehouse_id}
+      # Path is relative to this resources/ file, hence the ../
+      file_path: ../genie/genie_space.json

@@ -1,0 +1,148 @@
+# The data pipeline, in dependency order.
+#
+# Each task is one of the existing, proven build scripts. They are NOT rewritten
+# for the bundle: they already drive SQL through the statements API and are
+# idempotent (content_hash gating, MERGE on number, CREATE OR REPLACE views), so
+# re-running the job is safe and cheap.
+#
+# RETARGETING: each task passes --catalog/--schema/--warehouse-id, which
+# preflight/env.py turns into the module globals every table name derives from.
+# Flags rather than env vars because a serverless job `environment` spec supports
+# only client/dependencies/base_environment — it has NO environment_variables
+# field (confirmed: zero occurrences in `databricks bundle schema`).
+#
+# parse_tickets and load_tables take no flags: they read the markdown samples and
+# write via preflight's own defaults, and were not part of the parameterisation
+# pass. They still resolve through preflight/env.py, so FIS_* env vars set on a
+# local run reach them; a retargeted BUNDLE run would still write bronze to the
+# default catalog. Left as-is deliberately rather than half-parameterised.
+#
+# NOT wired as a Lakeflow pipeline: these scripts are SQL-over-REST drivers with
+# no Spark session and no streaming tables, so a `pipelines` resource would be the
+# wrong abstraction. A job with ordered tasks matches what they actually are.
+
+resources:
+  jobs:
+    fis_data_pipeline:
+      name: "[${bundle.target}] FIS data pipeline (bronze -> serving)"
+      description: >-
+        parse -> load -> silver -> glossary -> enrich -> ka_content -> serving.
+        Idempotent end to end; the content_hash anti-join means a re-run with no
+        new tickets does zero LLM work.
+
+      # Serverless compute for every task; no cluster to size or keep warm.
+      environments:
+        - environment_key: serverless
+          spec:
+            client: "3"
+            dependencies:
+              - requests
+
+      # Fail loudly rather than leaving a half-built serving table.
+      max_concurrent_runs: 1
+
+      tasks:
+        # --- bronze: markdown samples -> Delta ---
+        - task_key: parse_tickets
+          description: Parse the sample/synthetic markdown tickets into rows.
+          environment_key: serverless
+          spark_python_task:
+            python_file: ../src/deploy/parse_tickets.py
+
+        - task_key: load_tables
+          description: Load parsed rows into rnd_tickets + ticket_activity.
+          depends_on:
+            - task_key: parse_tickets
+          environment_key: serverless
+          spark_python_task:
+            python_file: ../src/deploy/load_tables.py
+
+        # --- silver: typed, derived columns ---
+        - task_key: silver
+          description: rd_tasks_silver — typed columns, location parts, durations.
+          depends_on:
+            - task_key: load_tables
+          environment_key: serverless
+          spark_python_task:
+            python_file: ../src/deploy/silver.py
+            parameters:
+              - --catalog
+              - ${var.catalog}
+              - --schema
+              - ${var.schema}
+              - --warehouse-id
+              - ${var.warehouse_id}
+
+        # --- glossary: the controlled vocabulary enrichment depends on ---
+        - task_key: glossary
+          description: Build the glossary; approvals drive the enrichment enums (GLO-02).
+          depends_on:
+            - task_key: silver
+          environment_key: serverless
+          spark_python_task:
+            python_file: ../src/deploy/build_glossary.py
+            parameters:
+              - --catalog
+              - ${var.catalog}
+              - --schema
+              - ${var.schema}
+              - --warehouse-id
+              - ${var.warehouse_id}
+
+        # --- gold: the LLM enrichment pass ---
+        - task_key: enrich
+          description: >-
+            ai_query structured extraction -> rd_tasks_gold_enrichment. Enums come
+            from the APPROVED glossary at run time, never a hardcoded list.
+          depends_on:
+            - task_key: glossary
+          environment_key: serverless
+          spark_python_task:
+            python_file: ../src/deploy/enrich.py
+            parameters:
+              - --catalog
+              - ${var.catalog}
+              - --schema
+              - ${var.schema}
+              - --warehouse-id
+              - ${var.warehouse_id}
+
+        # --- KA content on rnd_tickets (kept for the ORIGINAL KA) ---
+        - task_key: ka_content
+          description: >-
+            Compose rnd_tickets.ka_content from the gold segments, acronyms
+            expanded from the glossary.
+          depends_on:
+            - task_key: enrich
+          environment_key: serverless
+          spark_python_task:
+            python_file: ../src/deploy/build_ka_content.py
+            parameters:
+              - --catalog
+              - ${var.catalog}
+              - --schema
+              - ${var.schema}
+              - --warehouse-id
+              - ${var.warehouse_id}
+
+        # --- the one table both engines read ---
+        - task_key: serving_table
+          description: >-
+            rd_tasks_serving (+ rd_tasks_serving_analytics). CDF on and a metadata
+            struct, both REQUIRED for the KA to attach. --verify runs 11 assertions.
+          depends_on:
+            - task_key: ka_content
+          environment_key: serverless
+          spark_python_task:
+            python_file: ../src/deploy/build_serving_table.py
+            parameters:
+              - --catalog
+              - ${var.catalog}
+              - --schema
+              - ${var.schema}
+              - --warehouse-id
+              - ${var.warehouse_id}
+
+      tags:
+        project: fis-knowledge-agent
+        layer: data-pipeline
