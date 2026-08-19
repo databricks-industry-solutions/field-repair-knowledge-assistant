@@ -14,7 +14,7 @@
     },
     {
       "name": "glossary_lookup",
-      "uc_function_name": "serverless_stable_l26d62_catalog.fis_knowledge_agent.glossary_lookup",
+      "uc_function_name": "main.troubleshooting_knowledge_agent.glossary_lookup",
       "description": "Look up the authoritative definition of a Fleetworthy roadside-screening acronym or term (CA, AUR, ALPR, ATIS, WIM, HTS, WPS/NetBooter, etc.) from the SME-approved glossary, returning its definition AND its category (system / software / hardware / vendor / process). Use when a user asks what a term means, or when jargon needs disambiguation before querying the other tools."
     }
   ],
