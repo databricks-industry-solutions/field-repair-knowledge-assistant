@@ -1,13 +1,13 @@
 <!-- generated-by: gsd-doc-writer -->
-# Architecture — FIS AI Knowledge Agent
+# Architecture — Field Repair Knowledge Assistant
 
 ## System Overview
 
-The FIS AI Knowledge Agent is a Databricks Agent Bricks system that turns Fleetworthy Infrastructure Solutions' siloed ServiceNow R&D troubleshooting history into a cited, conversational knowledge agent. Its input is a natural-language question from an R&D/field-support (SOS) engineer facing an incomplete or open task (for example, a WIM reporting zero weights, an AUR camera failing, or an HTS web app crashing). Its output is a cited, actionable recommendation grounded in the most relevant prior cases.
+The Field Repair Knowledge Assistant is a Databricks Agent Bricks solution template that turns an organization's siloed ServiceNow R&D troubleshooting history into a cited, conversational knowledge agent. The example corpus that ships with the template is a roadside truck-screening R&D operation; swap the corpus and glossary and the same machinery serves any maintenance & repair domain. Its input is a natural-language question from an R&D/field-support engineer facing an incomplete or open task (for example, a WIM reporting zero weights, an AUR camera failing, or an HTS web app crashing). Its output is a cited, actionable recommendation grounded in the most relevant prior cases.
 
-Architecturally it is a **retrieval-and-orchestration** system layered on Unity Catalog. A single canonical Delta table is the source of truth for every R&D case. Two complementary retrieval engines read that table — a **Knowledge Assistant (KA)** for semantic similar-case retrieval with citations, and a **Genie Space** for natural-language-to-SQL over structured columns. A **Multi-Agent Supervisor (MAS)** routes each question to the right engine (or fans out to both) and resolves domain jargon via a `glossary_lookup` Unity Catalog function. A brandable **Databricks One / Genie front door** puts the whole thing in front of the ~10-person SOS team. The system runs entirely on Databricks serverless. Catalog and schema are bundle variables (default `main.troubleshooting_knowledge_agent`, overridable per workspace with `--var catalog=… --var schema=…`); the reference deployment targets `serverless_stable_l26d62_catalog.fis_knowledge_agent` in the `fevm-serverless-stable-l26d62` workspace.
+Architecturally it is a **retrieval-and-orchestration** system layered on Unity Catalog. A single canonical Delta table is the source of truth for every R&D case. Two complementary retrieval engines read that table — a **Knowledge Assistant (KA)** for semantic similar-case retrieval with citations, and a **Genie Space** for natural-language-to-SQL over structured columns. A **Multi-Agent Supervisor (MAS)** routes each question to the right engine (or fans out to both) and resolves domain jargon via a `glossary_lookup` Unity Catalog function. A brandable **Databricks One / Genie front door** puts the whole thing in front of the field-support team. The system runs entirely on Databricks serverless. Catalog and schema are bundle variables (default `main.troubleshooting_knowledge_agent`, overridable per workspace with `--var catalog=… --var schema=…`).
 
-The question workload is characterized by five query archetypes drawn from the customer's acceptance script: terminology matching, domain-expert finding, task complexity/delay analysis, priority triage of open tasks, and site-specific recurring-issue detection. Semantic archetypes route to KA; structured/aggregate archetypes route to Genie; hybrid archetypes fan out to both.
+The question workload is characterized by five query archetypes drawn from the example acceptance script: terminology matching, domain-expert finding, task complexity/delay analysis, priority triage of open tasks, and site-specific recurring-issue detection. Semantic archetypes route to KA; structured/aggregate archetypes route to Genie; hybrid archetypes fan out to both.
 
 ## Logical View
 
@@ -53,8 +53,8 @@ graph TD
     end
 
     subgraph "Retrieval Engines — Agent Bricks"
-        KA[Knowledge Assistant<br/>fis-rnd-knowledge-assistant]
-        GENIE[Genie Space<br/>FIS R&D Tickets]
+        KA[Knowledge Assistant<br/>rkb-knowledge-assistant]
+        GENIE[Genie Space<br/>Field Repair Tickets]
     end
 
     MAS[Multi-Agent Supervisor<br/>routes KA / Genie / glossary_lookup]
@@ -87,7 +87,7 @@ Data flows left-to-right: raw ServiceNow markdown plus synthetically generated t
 A typical question moves through the system as follows:
 
 1. **Entry.** An SOS engineer asks a question through the Databricks One / Genie front door, which routes to the Multi-Agent Supervisor under a single conversation and the user's own identity and grants.
-2. **Terminology resolution.** The Supervisor calls the `glossary_lookup(term_query)` Unity Catalog function first when jargon needs disambiguation (for example, `CA` → Controller Application, `NetBooter` → WPS). It receives the term's canonical definition and `category` and passes the term plus category downstream. The `category` drives how the term is handled: a `system` term is matched as an array element, while a non-system term is matched as free text — the correctness fix that prevents a false zero count.
+2. **Terminology resolution.** The Supervisor calls the `glossary_lookup(term_query)` Unity Catalog function first when jargon needs disambiguation (for example, `CA` → Controller Application, `WPS` → PowerNode). It receives the term's canonical definition and `category` and passes the term plus category downstream. The `category` drives how the term is handled: a `system` term is matched as an array element, while a non-system term is matched as free text — the correctness fix that prevents a false zero count.
 3. **Routing.** Based on the sub-agent tool descriptions, the Supervisor routes to the correct engine(s):
    - **Semantic archetypes** (terminology matching, similar-case retrieval, cross-site recurring patterns) → Knowledge Assistant.
    - **Structured/aggregate archetypes** (counts, priority sorting, involvement counts) → Genie Space.
@@ -104,11 +104,11 @@ The system is composed of Databricks-native assets rather than application sourc
 - **The one serving table** — `rd_tasks_serving`, the single physical table **both** engines read: the KA-indexed `ka_content` column, the `metadata` STRUCT, and CDF enabled. It is a **plain Delta table** (not a view or materialized view) so the Knowledge Assistant can *stream* from it — streaming from an MV is unsupported. Built in-job by the `serving` notebook (`src/notebooks/serving.py`).
 - **Enrichment gold layer** — `rd_tasks_gold_enrichment` (a Delta table, incrementally `MERGE`-upserted, gated by `content_hash`). `ai_query`-driven enrichment adds canonical structured columns (`systems_involved`, `hardware`, `vendors`, `problem_category`, `root_cause`, `resolution_type`) plus a segmented description (`summary` / `customer_impact` / `troubleshooting` / `recommendation`). Genie's read surface is the curated view `rd_tasks_serving_analytics` (with `rd_tasks_gold_analytics` kept as a compatibility alias) over `rd_tasks_serving`.
 - **Governed glossary** — the `glossary` table (canonical term, definition, category, synonyms/aliases, approved_by, version) and the `glossary_lookup(term_query STRING) RETURNS TABLE(term STRING, definition STRING, category STRING)` Unity Catalog function. Sourced from product docs (authoritative) merged with ServiceNow usage evidence; only approved terms are served. This is the controlled vocabulary that drives both enrichment enums and the Supervisor's terminology resolution.
-- **Knowledge Assistant (KA)** — `fis-rnd-knowledge-assistant`, served at endpoint `ka-97df484b-endpoint`. An Agent Bricks Instructed Retriever indexing `rd_tasks_serving.ka_content` plus a glossary Volume source; returns similar-case answers with resolving citations. Queried via `POST /serving-endpoints/{endpoint}/invocations`.
-- **Genie Space** — `FIS R&D Tickets` (space_id `01f185f0ce8e15cd9a92d86b3171c52e`). Natural-language-to-SQL over `rd_tasks_serving_analytics`, encoding involvement counting, open-task priority ranking, and delay/complexity signals as certified queries and instructions.
+- **Knowledge Assistant (KA)** — `rkb-knowledge-assistant`, served at endpoint `ka-97df484b-endpoint`. An Agent Bricks Instructed Retriever indexing `rd_tasks_serving.ka_content` plus a glossary Volume source; returns similar-case answers with resolving citations. Queried via `POST /serving-endpoints/{endpoint}/invocations`.
+- **Genie Space** — `Field Repair Tickets` (space_id `<genie-space-id>`). Natural-language-to-SQL over `rd_tasks_serving_analytics`, encoding involvement counting, open-task priority ranking, and delay/complexity signals as certified queries and instructions.
 - **Multi-Agent Supervisor (MAS)** — orchestrates the three tools (KA endpoint, Genie space, `glossary_lookup` function) under one conversation. Routing is driven by sharp, disambiguating natural-language tool descriptions rather than hard-coded rules. Supervisor LLM is `databricks-claude-sonnet-4-5`. <!-- VERIFY: MAS serving endpoint id and routing-instruction contents — Agent Bricks MAS metadata is not exposed via the serving API and must be read from the Agent Bricks UI -->
 - **Foundation Model API endpoints** — `databricks-claude-sonnet-4-5` powers the agents (synthesis, reasoning) and drives `ai_query` enrichment; `databricks-claude-haiku-4-5` powers the synthetic-ticket generation pass.
-- **Front door** — Databricks One (with Genie as the fallback front door) provides the brandable entry point for the SOS users and routes to the Supervisor. <!-- VERIFY: Databricks One GA availability and consumer-access entitlement state in fevm-serverless-stable-l26d62 -->
+- **Front door** — Databricks One (with Genie as the fallback front door) provides the brandable entry point for the SOS users and routes to the Supervisor. <!-- VERIFY: Databricks One GA availability and consumer-access entitlement state in the reference workspace -->
 
 ## Directory Structure Rationale
 

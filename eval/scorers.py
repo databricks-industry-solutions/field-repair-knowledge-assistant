@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FIS AI Knowledge Agent — Phase 7 Plan 02: custom citation_groundedness scorer.
+"""Field Repair Knowledge Assistant — Phase 7 Plan 02: custom citation_groundedness scorer.
 
 The groundedness/citation dimension of EVAL-02. The built-in
 retrieval-groundedness scorer CANNOT be used here: the deployed MAS endpoint
@@ -20,7 +20,7 @@ Citation-resolution primitives (`tickets_in_corpus`, `_norm_ticket`, `TICKET_RE`
 `src/deploy/test_supervisor.py` — never reimplemented.
 
 Live corpus columns (confirmed at build time via information_schema on
-`fevm-serverless-stable-l26d62`, 2026-07-30):
+`the reference workspace`, 2026-07-30):
   - citation resolution: `rd_tasks_gold_analytics.task_number` (Assumption A5)
   - claim-support text:   `rnd_tickets(number, case_text)`  ← the citeable column
 """

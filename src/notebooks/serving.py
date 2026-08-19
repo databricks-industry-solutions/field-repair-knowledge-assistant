@@ -102,7 +102,7 @@ LEFT JOIN (SELECT number, count(*) AS num_note_entries
 # plain, streamable managed Delta table even if a prior deploy left an MV of this name behind.
 spark.sql(f"""
 CREATE OR REPLACE TABLE {T_SERVING}
-COMMENT 'One serving row per FIS R&D task for BOTH engines. KA indexes ka_content (segmented + glossary-acronym-expanded) and cites via the metadata struct; Genie reads the structured columns. CDF on for the KA streaming attach.'
+COMMENT 'One serving row per R&D task for BOTH engines. KA indexes ka_content (segmented + glossary-acronym-expanded) and cites via the metadata struct; Genie reads the structured columns. CDF on for the KA streaming attach.'
 TBLPROPERTIES (delta.enableChangeDataFeed = true)
 AS
 {serving_select()}
@@ -127,14 +127,14 @@ CREATE OR REPLACE VIEW {fq}.{view} (
   is_closed COMMENT 'TRUE if status starts with Closed.',
   location_state COMMENT '2-letter US state / Canadian province of the site.',
   location_highway COMMENT 'Highway/route of the site, e.g. I-40, US-60.',
-  location_site COMMENT 'Site name within the state, e.g. Texico, Orange Grove.',
+  location_site COMMENT 'Site name within the state, e.g. the town or interchange.',
   site_key COMMENT 'Canonical state:site key for grouping tasks by site.',
   duration_days COMMENT 'Days between first and last activity. Higher = longer to resolve.',
   num_note_entries COMMENT 'Count of dated note entries; proxy for back-and-forth/difficulty.',
   num_activities COMMENT 'Count of audit-trail activity events.',
   systems_involved COMMENT 'Array of screening systems: ALPR, ATIS, WIM, HTS, OVC, etc. Use array_contains().',
   hardware_mentioned COMMENT 'Array of hardware/components mentioned.',
-  vendors COMMENT 'Array of vendors: Neology, Kistler, PIPS, etc.',
+  vendors COMMENT 'Array of vendors: Lumex, Veridyne, Aptix, etc.',
   problem_category COMMENT 'hardware_failure, software_crash, network_connectivity, calibration, image_quality, power, configuration, other.',
   summary COMMENT 'LLM-segmented: what the issue is (from the description).',
   customer_impact COMMENT 'LLM-segmented: effect on the customer/site. Empty if the ticket does not state one.',
@@ -144,7 +144,7 @@ CREATE OR REPLACE VIEW {fq}.{view} (
   resolution COMMENT 'What resolved the issue, or unresolved.',
   resolution_type COMMENT 'hardware_replace, software_patch, recalibration, config_change, rma, firmware_update, monitoring, no_fix_found, unresolved, not_applicable.',
   needs_review COMMENT 'TRUE if enrichment confidence was low (SME should verify).')
-COMMENT 'Curated R&D task analytics for Fleetworthy roadside truck-screening (WIM/ALPR/AUR/ATIS). One row per task over rd_tasks_serving — the SAME physical rows the Knowledge Assistant retrieves from. Use for counts, durations, expert-finding, priority and site-pattern analysis.'
+COMMENT 'Curated R&D task analytics for roadside truck-screening (WIM/ALPR/AUR/ATIS). One row per task over rd_tasks_serving — the SAME physical rows the Knowledge Assistant retrieves from. Use for counts, durations, expert-finding, priority and site-pattern analysis.'
 WITH SCHEMA COMPENSATION
 AS SELECT number, title, parent, assigned_to, priority_level, priority_label, status,
   workflow_status, is_closed, location_state, location_highway, location_site, site_key,

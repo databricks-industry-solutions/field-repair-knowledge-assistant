@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-FIS AI Knowledge Agent — Phase 4 Plan 01: build the Knowledge Assistant.
+Field Repair Knowledge Assistant — Phase 4 Plan 01: build the Knowledge Assistant.
 
-Stands up a live Agent Bricks Knowledge Assistant over the 223-ticket R&D corpus:
+Stands up a live Agent Bricks Knowledge Assistant over the sample R&D corpus:
 
   1. Create a MANAGED UC Volume for a curated acronym glossary, upload glossary.md.
   2. Create the KA via /api/2.1/knowledge-assistants (NOT /api/2.0/tiles) with
@@ -31,7 +31,7 @@ Design notes / spikes resolved this build:
     (--profile serverless-stable) — no SDK dependency at runtime.
 
 Reuses the host-assertion gate + run_cli/run_sql pattern from preflight/preflight.py
-so the build refuses to run against any workspace but fevm-serverless-stable-l26d62.
+so the build refuses to run against any workspace but the reference workspace.
 
 Usage:
     python3 src/deploy/build_ka.py --profile serverless-stable
@@ -48,11 +48,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # --- Reused constants (mirror preflight/preflight.py) -----------------------
-TARGET_HOST_FRAGMENT = "fevm-serverless-stable-l26d62"
+TARGET_HOST_FRAGMENT = os.environ.get("RKB_TARGET_HOST", "")
 
 # --- deployment target: catalog/schema/warehouse (see preflight/env.py) ---
 # Centralised so a DAB target can retarget this without editing 14 files.
-# Defaults to the historical l26d62 values, so local runs are unchanged.
+# Defaults to the historical default values, so local runs are unchanged.
 # Serverless spark_python_task execs this file with no `__file__` and CWD = the
 # script's own dir; fall back to CWD. env.py lives in THIS dir (this module
 # reimplements the preflight helpers, so only env needs to be importable).
@@ -66,7 +66,7 @@ DEFAULT_PROFILE = "serverless-stable"
 WAREHOUSE_ID = _env.WAREHOUSE_ID
 
 # KA build targets
-KA_DISPLAY_NAME = "fis-rnd-knowledge-assistant"
+KA_DISPLAY_NAME = "rkb-knowledge-assistant"
 GLOSSARY_VOLUME = "glossary"
 CORPUS_TABLE = f"{DEMO_CATALOG}.{DEMO_SCHEMA}.rnd_tickets"
 CORPUS_CONTENT_COL = "case_text"
@@ -97,7 +97,7 @@ BUILD_DOC = (
 # KA instructions — hedge + cite + anti-leakage (D-04).
 #
 # THESE ARE THE LIVE, TUNED INSTRUCTIONS, recovered from the running
-# `fis-rnd-knowledge-assistant` on 2026-08-05. The prose version that used to
+# `rkb-knowledge-assistant` on 2026-08-05. The prose version that used to
 # live here had DRIFTED from what was actually deployed: someone tightened the
 # live KA in the console (numbered rules, "CITE EVERYTHING", "GIVE STEPS") and
 # the constant was never updated.
@@ -109,7 +109,7 @@ BUILD_DOC = (
 # depends on — the polite paragraph form does not. Keep this in sync with the
 # console, or a rebuild silently regresses answer quality.
 KA_INSTRUCTIONS = (
-    "You are a retrieval assistant over Fleetworthy (FIS) R&D troubleshooting "
+    "You are a retrieval assistant over R&D troubleshooting "
     "tickets plus an acronym glossary. Follow these rules:\n\n"
     "1. CITE EVERYTHING. Put the source ticket number in parentheses after each "
     "claim, e.g. (R&DTASK0001033). End with a 'Sources:' line. Cite glossary.md "
@@ -249,7 +249,7 @@ def ensure_glossary_volume(profile):
     ddl = (
         f"CREATE VOLUME IF NOT EXISTS "
         f"{DEMO_CATALOG}.{DEMO_SCHEMA}.{GLOSSARY_VOLUME} "
-        f"COMMENT 'Curated FIS acronym glossary — 2nd KA knowledge source (D-03)'"
+        f"COMMENT 'Curated acronym glossary — 2nd KA knowledge source (D-03)'"
     )
     state, _ = run_sql(ddl, profile)
     if state != "SUCCEEDED":
@@ -323,7 +323,7 @@ def create_ka(profile):
     body = {
         "display_name": KA_DISPLAY_NAME,
         "description": (
-            "Similar-case retrieval + terminology resolution over 223 FIS R&D "
+            "Similar-case retrieval + terminology resolution over R&D "
             "troubleshooting tickets, with a curated acronym glossary source."
         ),
         "instructions": KA_INSTRUCTIONS,
@@ -360,7 +360,7 @@ def attach_sources(ka_name, profile):
         print("[T2] Attaching source 1: rnd_tickets Delta table (file_table)...")
         body = {
             "display_name": "rnd_tickets_corpus",
-            "description": "223 FIS R&D tickets; full case text in case_text.",
+            "description": "R&D tickets; full case text in case_text.",
             "source_type": SOURCE_TYPE_FILE_TABLE,
             "file_table": {
                 "table_name": CORPUS_TABLE,
@@ -378,11 +378,11 @@ def attach_sources(ka_name, profile):
         print("[T2] Delta source already attached (skip).")
 
     # Source 2 — glossary Volume file (D-03). CONFIRMED source_type = "files".
-    if "fis_glossary" not in existing_names:
+    if "rkb_glossary" not in existing_names:
         print("[T2] Attaching source 2: glossary Volume file (files)...")
         body = {
-            "display_name": "fis_glossary",
-            "description": "Curated FIS acronym glossary (CA=Controller Application, etc.).",
+            "display_name": "rkb_glossary",
+            "description": "Curated acronym glossary (CA=Controller Application, etc.).",
             "source_type": SOURCE_TYPE_FILES,
             # A1 spike (glossary leg): FilesSpec.path is a DIRECTORY UC volume path
             # ("a UC volume path that includes a list of files"), NOT a single file.
@@ -446,7 +446,7 @@ def repoint_corpus_source(ka_name, profile):
     body = {
         "display_name": CORPUS_SOURCE_NAME,
         "description": (
-            "223 FIS R&D tickets; segmented + glossary-acronym-expanded content "
+            "R&D tickets; segmented + glossary-acronym-expanded content "
             "in ka_content (ENR-03). Citations resolve via the rnd_tickets "
             "metadata struct (ticket number in the file path)."
         ),
@@ -638,7 +638,7 @@ citation-payload shape.
 
 ## Indexing Wall-Clock (Pitfall 6 — live-only)
 
-- **Polled to ACTIVE/UPDATED in:** ~{elapsed}s ({elapsed/60:.1f} min) over 223 short
+- **Polled to ACTIVE/UPDATED in:** ~{elapsed}s ({elapsed/60:.1f} min) over the sample corpus of short
   `case_text` rows + 1 glossary file.
 - Polling interval {POLL_INTERVAL_S}s; readiness gated on `state`, not a fixed timer.
 
@@ -843,7 +843,7 @@ def _apply_target(args):
     return cat, sch, fq, wh
 
 def main():
-    ap = argparse.ArgumentParser(description="Build the FIS R&D Knowledge Assistant.")
+    ap = argparse.ArgumentParser(description="Build the Field Repair Knowledge Assistant.")
     # Accept --catalog/--schema/--warehouse-id so a DAB job task can retarget
     # this script. Serverless job environments cannot set env vars, so flags
     # are the only retargeting channel available to the bundle.

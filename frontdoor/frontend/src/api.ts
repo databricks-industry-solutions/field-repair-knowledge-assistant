@@ -1,4 +1,4 @@
-// Chat client for the FIS R&D Knowledge Agent front door.
+// Chat client for the Field Repair Knowledge Assistant front door.
 //
 // SECURITY (T-06-09 / RESEARCH Pitfall 5): this client calls the app's OWN
 // backend over SAME-ORIGIN RELATIVE `/api` paths ONLY. It NEVER calls the

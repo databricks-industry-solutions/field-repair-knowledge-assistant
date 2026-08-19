@@ -54,8 +54,8 @@ databricks warehouses get <WAREHOUSE_ID> --profile <PROFILE> | grep -E '"name"|"
 
 > **The deploy is PHASED, not one `bundle deploy`.** Two native resources have
 > deploy-time dependencies on job outputs: the **Genie space** validates that its
-> backing table (`rd_tasks_serving_analytics`) exists (built by `fis_data_pipeline`),
-> and the **app** binds the **MAS endpoint** by name (created by `fis_agents`). So the
+> backing table (`rd_tasks_serving_analytics`) exists (built by `rkb_data_pipeline`),
+> and the **app** binds the **MAS endpoint** by name (created by `rkb_agents`). So the
 > order is: infra (Stage 1) → run pipeline + deploy Genie/agents (Stage 2) → run agents
 > (Stage 3) → deploy + start the app bound to the endpoint (Stage 4). A single
 > `bundle deploy` fails on a cold environment.
@@ -82,7 +82,7 @@ Output is a create/change/delete list, e.g.
 
 ```
 create apps.frontdoor
-create genie_spaces.fis_rnd_serving
+create genie_spaces.rkb_serving
 ...
 Plan: 9 to add, 0 to change, 0 to delete, 0 unchanged
 ```
@@ -106,8 +106,8 @@ bundle is about to remove something you want to keep.
 databricks bundle deploy -t <TARGET> \
   --var catalog=<CATALOG> --var schema=<SCHEMA> --var warehouse_id=<WAREHOUSE_ID> \
   --var app_name=<APP_NAME> \
-  --select schemas.fis --select volumes.glossary \
-  --select jobs.fis_data_pipeline
+  --select schemas.rkb --select volumes.glossary \
+  --select jobs.rkb_data_pipeline
 ```
 
 **GATE 1**
@@ -116,24 +116,24 @@ databricks bundle deploy -t <TARGET> \
 databricks bundle summary -t <TARGET>
 ```
 
-Expect the 3 infra resources: `schemas.fis`, `volumes.glossary`, and job
-`fis_data_pipeline`. (The full bundle is 7 resources + the volume grant;
-`genie_spaces.fis_rnd_serving` + `jobs.fis_agents` arrive in Stage 2 and
-`apps.frontdoor` + `jobs.fis_frontdoor_authz` in Stage 4.) Missing infra → stop.
+Expect the 3 infra resources: `schemas.rkb`, `volumes.glossary`, and job
+`rkb_data_pipeline`. (The full bundle is 7 resources + the volume grant;
+`genie_spaces.rkb_serving` + `jobs.rkb_agents` arrive in Stage 2 and
+`apps.frontdoor` + `jobs.rkb_frontdoor_authz` in Stage 4.) Missing infra → stop.
 
 ---
 
 ## Stage 2 — Data pipeline
 
 ```bash
-databricks bundle run fis_data_pipeline -t <TARGET>
+databricks bundle run rkb_data_pipeline -t <TARGET>
 
 # Phase 2 deploy — the analytics view now exists, so the Genie space validates, and the
-# agents job can resolve ${resources.genie_spaces.fis_rnd_serving.id}.
+# agents job can resolve ${resources.genie_spaces.rkb_serving.id}.
 databricks bundle deploy -t <TARGET> \
   --var catalog=<CATALOG> --var schema=<SCHEMA> --var warehouse_id=<WAREHOUSE_ID> \
   --var app_name=<APP_NAME> \
-  --select genie_spaces.fis_rnd_serving --select jobs.fis_agents
+  --select genie_spaces.rkb_serving --select jobs.rkb_agents
 ```
 
 Tasks in order: `parse_tickets` → `load_tables` → {`build_silver`, `glossary`} →
@@ -205,7 +205,7 @@ by any ticket — is fine, not a failure.)
 ## Stage 3 — Agents (the long one)
 
 ```bash
-databricks bundle run fis_agents -t <TARGET>
+databricks bundle run rkb_agents -t <TARGET>
 ```
 
 Two tasks: `serving_agents` (KA + Genie) then `supervisor`.
@@ -214,7 +214,7 @@ Two tasks: `serving_agents` (KA + Genie) then `supervisor`.
 `UPDATED` at **1434s**. Poll; do not assume. Healthy intermediate output looks like:
 
 ```
-[KA] t+400s KA=CREATING sources={'rd_tasks_serving_corpus': 'UPDATING', 'fis_glossary': 'UPDATING'}
+[KA] t+400s KA=CREATING sources={'rd_tasks_serving_corpus': 'UPDATING', 'rkb_glossary': 'UPDATING'}
 ```
 
 `CREATING`/`UPDATING` with no error is **normal**, not stuck. What is *not* normal:
@@ -248,16 +248,16 @@ quality regression rather than an outage:
 ## Stage 4 — Front-door app
 
 ```bash
-# Phase 3 deploy — bind the app to the MAS endpoint fis_agents created in Stage 3.
+# Phase 3 deploy — bind the app to the MAS endpoint rkb_agents created in Stage 3.
 # <ENDPOINT> is the serving-endpoint name that job reported.
 databricks bundle deploy -t <TARGET> \
   --var catalog=<CATALOG> --var schema=<SCHEMA> --var warehouse_id=<WAREHOUSE_ID> \
   --var app_name=<APP_NAME> --var mas_endpoint_name=<ENDPOINT> \
-  --select apps.frontdoor --select jobs.fis_frontdoor_authz
+  --select apps.frontdoor --select jobs.rkb_frontdoor_authz
 
 # OBO scopes + the serving-endpoint resource binding — the DAB App resource cannot
 # express user_api_scopes, so frontdoor_deploy.py owns it (bound to --var mas_endpoint_name).
-databricks bundle run fis_frontdoor_authz -t <TARGET> \
+databricks bundle run rkb_frontdoor_authz -t <TARGET> \
   --var catalog=<CATALOG> --var schema=<SCHEMA> --var warehouse_id=<WAREHOUSE_ID> \
   --var app_name=<APP_NAME> --var mas_endpoint_name=<ENDPOINT>
 

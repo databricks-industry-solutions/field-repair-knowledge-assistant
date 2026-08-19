@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-FIS AI Knowledge Agent — LOCAL Genie analytics views over rd_tasks_serving + KA/Genie checks.
+Field Repair Knowledge Assistant — LOCAL Genie analytics views over rd_tasks_serving + KA/Genie checks.
 
 The consolidated `rd_tasks_serving` table (the single surface BOTH engines read —
 KA indexes `ka_content`, Genie reads the structured columns) is built IN-JOB by the
 `serving` notebook (src/notebooks/serving.py), which also creates the analytics views and
 runs verify(). This script is a LOCAL convenience CLI (run from a laptop with a warehouse):
-it is NOT a task in the fis_data_pipeline job. It owns the two warehouse-layer operations:
+it is NOT a task in the rkb_data_pipeline job. It owns the two warehouse-layer operations:
 
   1. The curated Genie serving views over rd_tasks_serving:
        * rd_tasks_serving_analytics  — the canonical, COMMENTed Genie surface.
@@ -40,7 +40,7 @@ from preflight import assert_target_host, run_sql  # noqa: E402
 
 # --- deployment target: catalog/schema/warehouse (see preflight/env.py) ---
 # Centralised so a DAB target can retarget this without editing 14 files.
-# Defaults to the historical l26d62 values, so local runs are unchanged.
+# Defaults to the historical default values, so local runs are unchanged.
 import env as _env  # noqa: E402  (preflight/ already on sys.path above)
 
 WAREHOUSE_ID = _env.WAREHOUSE_ID
@@ -55,8 +55,8 @@ DEFAULT_PROFILE = "serverless-stable"
 
 # Demo-specific corpus size. Left UNSET (0) by default so the template works for any
 # corpus — the check then only asserts the serving table is non-empty. Pin it via
-# FIS_EXPECTED_ROWS=<n> to hard-assert an exact count for a specific demo dataset.
-EXPECTED_ROWS = int(os.environ.get("FIS_EXPECTED_ROWS", "0"))
+# RKB_EXPECTED_ROWS=<n> to hard-assert an exact count for a specific demo dataset.
+EXPECTED_ROWS = int(os.environ.get("RKB_EXPECTED_ROWS", "0"))
 
 
 # --- Genie serving view over the ONE table ----------------------------------
@@ -78,14 +78,14 @@ CREATE OR REPLACE VIEW {FQ}.{view} (
   is_closed COMMENT 'TRUE if status starts with Closed.',
   location_state COMMENT '2-letter US state / Canadian province of the site.',
   location_highway COMMENT 'Highway/route of the site, e.g. I-40, US-60.',
-  location_site COMMENT 'Site name within the state, e.g. Texico, Orange Grove.',
+  location_site COMMENT 'Site name within the state, e.g. the town or interchange.',
   site_key COMMENT 'Canonical state:site key for grouping tasks by site.',
   duration_days COMMENT 'Days between first and last activity. Higher = longer to resolve.',
   num_note_entries COMMENT 'Count of dated note entries; proxy for back-and-forth/difficulty.',
   num_activities COMMENT 'Count of audit-trail activity events.',
   systems_involved COMMENT 'Array of screening systems: ALPR, ATIS, WIM, HTS, OVC, etc. Use array_contains().',
   hardware_mentioned COMMENT 'Array of hardware/components mentioned.',
-  vendors COMMENT 'Array of vendors: Neology, Kistler, PIPS, etc.',
+  vendors COMMENT 'Array of vendors: Lumex, Veridyne, Aptix, etc.',
   problem_category COMMENT 'hardware_failure, software_crash, network_connectivity, calibration, image_quality, power, configuration, other.',
   summary COMMENT 'LLM-segmented: what the issue is (from the description).',
   customer_impact COMMENT 'LLM-segmented: effect on the customer/site. Empty if the ticket does not state one.',
@@ -95,7 +95,7 @@ CREATE OR REPLACE VIEW {FQ}.{view} (
   resolution COMMENT 'What resolved the issue, or unresolved.',
   resolution_type COMMENT 'hardware_replace, software_patch, recalibration, config_change, rma, firmware_update, monitoring, no_fix_found, unresolved, not_applicable.',
   needs_review COMMENT 'TRUE if enrichment confidence was low (SME should verify).')
-COMMENT 'Curated R&D task analytics for Fleetworthy roadside truck-screening (WIM/ALPR/AUR/ATIS). One row per task over rd_tasks_serving — the SAME physical rows the Knowledge Assistant retrieves from. Use for counts, durations, expert-finding, priority and site-pattern analysis.'
+COMMENT 'Curated R&D task analytics for roadside truck-screening (WIM/ALPR/AUR/ATIS). One row per task over rd_tasks_serving — the SAME physical rows the Knowledge Assistant retrieves from. Use for counts, durations, expert-finding, priority and site-pattern analysis.'
 WITH SCHEMA COMPENSATION
 AS SELECT number, title, parent, assigned_to, priority_level, priority_label, status,
   workflow_status, is_closed, location_state, location_highway, location_site, site_key,

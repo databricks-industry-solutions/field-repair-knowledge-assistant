@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Host-asserted deploy driver for the FIS R&D front-door Databricks App (Phase 06, Plan 05).
+Host-asserted deploy driver for the Field Repair front-door Databricks App (Phase 06, Plan 05).
 
 Deploys the FastAPI + React front door (frontdoor/) as a Databricks App, binds the
-`serving-endpoint` resource → the warm MAS `mas-f5fc28b0-endpoint` (CAN_QUERY, auto-granted
+`serving-endpoint` resource → the warm MAS `the MAS endpoint` (CAN_QUERY, auto-granted
 to the app SP on deploy), and enables OBO user authorization with the confirmed serving
 scope (`serving.serving-endpoints`, 06-PREFLIGHT). The end user's `x-forwarded-access-token`
 is what actually invokes the MAS (server-side, 06-03) — so each user needs their own
@@ -12,7 +12,7 @@ CAN_QUERY on the endpoint (RESEARCH Pitfall 3).
 Deploy sequence
 ---------------
   1. Assert the target host BEFORE any workspace write (CLAUDE.md platform constraint).
-  2. Create the app if it does not exist (idempotent; reuse `fis-rnd-frontdoor` by name).
+  2. Create the app if it does not exist (idempotent; reuse `rkb-frontdoor` by name).
   3. Stage a clean upload tree: backend + app.yaml + requirements.txt + frontend/dist ONLY
      (EXCLUDE node_modules / .venv / frontend/src / tests / __pycache__ — 4-deployment.md).
   4. Import the staged tree into the workspace source path and `databricks apps deploy`.
@@ -25,16 +25,16 @@ Deploy sequence
 Guardrails
 ----------
   * NEVER `--recreate` the MAS (resets the Phase-5 per-tile SSP authorization — Pitfall 4).
-    This driver references `mas-f5fc28b0-endpoint` by NAME only.
+    This driver references `the MAS endpoint` by NAME only.
   * NEVER prints tokens. Resources/scopes are logged by name only.
   * `--dry-run` prints the planned actions and exits 0 WITHOUT mutating the workspace.
   * `--print-url` prints ONLY the running app URL to stdout (for the smoke-gate pipeline).
 
 Usage
 -----
-    python frontdoor/deploy.py --profile serverless-stable --dry-run
-    python frontdoor/deploy.py --profile serverless-stable
-    python frontdoor/deploy.py --profile serverless-stable --print-url
+    python src/deploy/frontdoor_deploy.py --profile serverless-stable --dry-run
+    python src/deploy/frontdoor_deploy.py --profile serverless-stable
+    python src/deploy/frontdoor_deploy.py --profile serverless-stable --print-url
 """
 
 import argparse
@@ -46,9 +46,9 @@ import sys
 import tempfile
 
 # --- Constants (CLAUDE.md platform constraint + 06-PREFLIGHT confirmed values) ---
-TARGET_HOST = "fevm-serverless-stable-l26d62.cloud.databricks.com"
-APP_NAME = "fis-rnd-frontdoor"
-MAS_ENDPOINT_NAME = "mas-f5fc28b0-endpoint"          # reuse by NAME — never --recreate
+TARGET_HOST = os.environ.get("RKB_TARGET_HOST", "")  # optional host guard (soft)
+APP_NAME = "rkb-frontdoor"
+MAS_ENDPOINT_NAME = os.environ.get("MAS_ENDPOINT_NAME", "")  # set via --mas-endpoint-name
 SERVING_RESOURCE_KEY = "serving-endpoint"            # matches app.yaml valueFrom
 SERVING_PERMISSION = "CAN_QUERY"                     # least privilege (T-06-12)
 SERVING_SCOPE = "serving.serving-endpoints"          # 06-PREFLIGHT confirmed (HIGH)
@@ -126,7 +126,7 @@ def print_url(profile):
 def stage_tree():
     """Copy the clean upload tree to a temp dir. Ships backend + app.yaml +
     requirements.txt + frontend/dist ONLY. Returns the staging path."""
-    staging = tempfile.mkdtemp(prefix="fis-frontdoor-deploy-")
+    staging = tempfile.mkdtemp(prefix="rkb-frontdoor-deploy-")
     for f in INCLUDE_FILES:
         src = os.path.join(HERE, f)
         if not os.path.exists(src):
@@ -299,7 +299,7 @@ def _current_user(profile):
 
 def main():
     global APP_NAME, MAS_ENDPOINT_NAME  # rebound below; declared first (read in default=)
-    ap = argparse.ArgumentParser(description="Deploy the FIS R&D front-door Databricks App.")
+    ap = argparse.ArgumentParser(description="Deploy the Field Repair front-door Databricks App.")
     ap.add_argument("--profile", default="DEFAULT",
                     help="CLI profile for LOCAL runs. As a serverless job task, leave it "
                          "as DEFAULT — the SDK uses ambient auth.")
@@ -313,7 +313,7 @@ def main():
                          "use its own app instead of colliding with the shared one).")
     ap.add_argument("--mas-endpoint-name", default=MAS_ENDPOINT_NAME,
                     help="MAS serving endpoint to bind (OBO CAN_QUERY). Injected from "
-                         "${var.mas_endpoint_name} — the endpoint the fis_agents job "
+                         "${var.mas_endpoint_name} — the endpoint the rkb_agents job "
                          "created — so this never binds a stale hardcoded endpoint.")
     args = ap.parse_args()
 

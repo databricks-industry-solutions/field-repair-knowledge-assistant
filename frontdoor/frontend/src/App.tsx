@@ -102,9 +102,9 @@ export default function App() {
   return (
     <div className="app">
       <header className="brand">
-        <div className="logo">FIS</div>
+        <div className="logo">RKB</div>
         <div>
-          <h1>FIS R&amp;D Knowledge Agent</h1>
+          <h1>Field Repair Knowledge Assistant</h1>
           <p className="subtitle">
             Ask about prior R&amp;D cases — answers are cited back to ServiceNow tasks.
           </p>

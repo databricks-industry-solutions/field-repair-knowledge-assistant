@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-FIS AI Knowledge Agent — Phase 4.1 Plan 02, Task 1: two-source glossary_proposals.
+Knowledge Agent — Phase 4.1 Plan 02, Task 1: two-source glossary_proposals.
 
-Ports the reference `/tmp/servicenow_demo/notebooks/30_glossary.py` two-source
-merge into this repo's CLI-driven, host-gated harness (mirrors
+Builds a two-source glossary merge in this repo's CLI-driven, host-gated harness (mirrors
 data_generation/build_silver.py / preflight.py). No Spark session — every stage is a
 `CREATE OR REPLACE TABLE ...` issued through `run_sql` against the --warehouse-id
 resolved by env.py.
@@ -54,7 +53,7 @@ import preflight as _pf  # noqa: E402  (workspace_client for the SDK-based polle
 
 # --- deployment target: catalog/schema/warehouse (see preflight/env.py) ---
 # Centralised so a DAB target can retarget this without editing 14 files.
-# Defaults to the historical l26d62 values, so local runs are unchanged.
+# Defaults to the historical default values, so local runs are unchanged.
 import env as _env  # noqa: E402  (preflight/ already on sys.path above)
 
 WAREHOUSE_ID = _env.WAREHOUSE_ID
@@ -73,7 +72,7 @@ T_GLOSSARY = f"{FQ}.glossary"
 DEFAULT_PROFILE = "serverless-stable"
 
 # ai_query BATCH-capable endpoint. sonnet-5 is NOT batch-supported (Pitfall 2);
-# sonnet-4-5 verified batch-capable on l26d62.
+# sonnet-4-5 verified batch-capable on the reference workspace.
 CHAT_ENDPOINT = "databricks-claude-sonnet-4-5"
 
 DOCS_DIR = REPO / "data" / "product_docs"
@@ -89,7 +88,7 @@ EXTRACT_RF = json.dumps({"type": "json_schema", "json_schema": {"name": "terms",
             "required": ["term", "kind"]}}},
     "required": ["terms"]}}}).replace("'", "\\'")
 
-EXTRACT_SYS = ("Extract Fleetworthy-specific domain terms from this roadside truck-screening R&D "
+EXTRACT_SYS = ("Extract domain-specific terms from this roadside truck-screening R&D "
     "ticket: product names, vendor names, named hardware components, and named software/system "
     "or subsystem names (including their acronyms). Include multi-word terms (e.g. 'Controller "
     "Web Application', 'AUR Illuminator'). "
@@ -101,7 +100,7 @@ EXTRACT_SYS = ("Extract Fleetworthy-specific domain terms from this roadside tru
     "'ATIS Service'). Also exclude location codes, person names, dates, ticket IDs, and log/code "
     "identifiers (e.g. thread names, class names). "
     "Only include terms that appear VERBATIM in the text - do not invent or expand. "
-    "When unsure whether something is Fleetworthy-specific, leave it out.").replace("'", "\\'")
+    "When unsure whether something is domain-specific, leave it out.").replace("'", "\\'")
 
 PROP_RF = json.dumps({"type": "json_schema", "json_schema": {"name": "gloss", "strict": True, "schema": {
     "type": "object", "properties": {
@@ -112,7 +111,7 @@ PROP_RF = json.dumps({"type": "json_schema", "json_schema": {"name": "gloss", "s
         "confidence": {"type": "number"}},
     "required": ["is_domain_term", "definition", "category", "confidence"]}}}).replace("'", "\\'")
 
-PROP_SYS = ("You build a domain glossary for Fleetworthy roadside truck-screening. Given a candidate "
+PROP_SYS = ("You build a domain glossary for roadside truck-screening. Given a candidate "
     "term mined from ServiceNow R&D tickets with evidence snippets AND task titles, decide if it is "
     "domain jargon, define it grounded in evidence, categorize it, and note disambiguation. USE THE "
     "TASK TITLES as cross-document context (an acronym in tasks about the HTS Controller Web Application "
@@ -200,30 +199,30 @@ SEED_TERMS = [
      "The control/operator software layer for a roadside HTS installation; a component of the HTS controller stack that fuses sensor data into vehicle events and serves the web UI."),
     ("HTS", "Highway Truck Screening", "system", ["HTS system"],
      "Highway/roadside controller platform that hosts the Controller Application (CA) and coordinates attached sensors, cameras, and the web app."),
-    ("SmartLoop", None, "system", [],
+    ("LoopSense", None, "system", [],
      "Inductive-loop vehicle-detection subsystem used for presence and counting at a lane/site."),
     ("SRA", "Sensor Relay Assembly", "hardware", ["Sensor Relay Assembly"],
      "Powered relay/interface unit that bridges in-road sensors (WIM, VWI) to the controller; restarting the SRA power-cycles attached sensor bars."),
     ("WIM", "Weigh-In-Motion", "system", ["Weigh-In-Motion", "Weigh In Motion"],
      "System that measures axle/vehicle weights while a vehicle is moving over in-road sensors. Failures commonly present as zero or implausible weight readings."),
-    ("Kistler", None, "vendor", [],
+    ("Veridyne", None, "vendor", [],
      "Sensor vendor whose quartz/piezo strip sensors are used in WIM installations."),
     ("axle sensor", None, "hardware", [],
      "In-road sensor that detects/weighs individual axles; an input to the WIM computation."),
     ("AUR", "Automatic USDOT Reader", "hardware", ["Automatic USDOT Reader", "AUR camera"],
      "Camera unit that reads USDOT numbers and hazard placards from the tractor; needs illuminators at night. Referenced in imaging/ALPR contexts."),
-    ("OVC", "OVerview Camera", "hardware", ["OVerview Camera", "Overview Camera", "Bosch camera"],
-     "Wide-angle context camera unit (some supplied by Bosch) used in roadside imaging; can also serve as a trigger source (the OVC loop)."),
+    ("OVC", "OVerview Camera", "hardware", ["OVerview Camera", "Overview Camera"],
+     "Wide-angle context camera unit used in roadside imaging; can also serve as a trigger source (the OVC loop)."),
     ("ALPR", "Automatic License Plate Recognition", "system", ["Automatic License Plate Recognition"],
      "Capability (and the cameras serving it) that reads plate characters from vehicle images and determines issuing jurisdiction."),
-    ("PIPS", "PIPS Technology", "vendor", ["Neology", "PIPS Technology"],
-     "Vendor(s) associated with ALPR cameras and readers (PIPS Technology, part of Neology). Legacy PIPS cameras are being phased out in favour of Neology."),
-    ("Vimba", None, "software", ["Vimba Viewer", "Vimba X"],
-     "Camera viewer / SDK tooling (Allied Vision) used to view or configure machine-vision camera streams."),
+    ("Aptix", None, "vendor", ["Lumex"],
+     "Vendors associated with ALPR cameras and readers. Legacy Aptix cameras are being phased out in favour of Lumex."),
+    ("CamView", None, "software", ["CamView Viewer"],
+     "Camera viewer / SDK tooling used to view or configure machine-vision camera streams."),
     ("illuminator", None, "hardware", ["AUR illuminator"],
      "IR/visible lighting unit paired with a camera to enable capture in low light."),
-    ("WPS", "NetBooter", "hardware", ["NetBooter"],
-     "Networked power controller (a NetBooter unit) used to remotely power-cycle roadside equipment. WPS and NetBooter refer to the same power-controller role."),
+    ("WPS", "PowerNode", "hardware", ["PowerNode"],
+     "Networked power controller (a PowerNode unit) used to remotely power-cycle roadside equipment. WPS and PowerNode refer to the same power-controller role."),
     ("ATIS", "Axle & Tire Imaging System", "system", ["Axle & Tire Imaging System", "Advanced Traveler Information System"],
      "Enclosure-mounted cameras that image each axle/tire for axle-count and tire condition."),
 ]
@@ -557,7 +556,7 @@ def _apply_target(args):
     return cat, sch, fq, wh
 
 def main():
-    ap = argparse.ArgumentParser(description="Build the FIS two-source glossary_proposals (GLO-01).")
+    ap = argparse.ArgumentParser(description="Build the two-source glossary_proposals (GLO-01).")
     # Accept --catalog/--schema/--warehouse-id so a DAB job task can retarget
     # this script. Serverless job environments cannot set env vars, so flags
     # are the only retargeting channel available to the bundle.

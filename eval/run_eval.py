@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""FIS AI Knowledge Agent — Phase 7 Plan 02: full on-wording MLflow GenAI eval.
+"""Field Repair Knowledge Assistant — Phase 7 Plan 02: full on-wording MLflow GenAI eval.
 
 Broadens the 07-01 thin A1 slice into the full 5-archetype on-wording evaluation
-against the deployed Multi-Agent Supervisor (`mas-f5fc28b0-endpoint`, Responses
+against the deployed Multi-Agent Supervisor (`the MAS endpoint`, Responses
 API): host-gate → assert the warm endpoint is READY (reuse, never re-provision) →
 build the claim-decomposed 5-archetype dataset from `Prompts.md` (via
-`eval/dataset.py`, `FIS_PROMPTS_PATH`, in-memory only) → `mlflow.genai.evaluate`
+`eval/dataset.py`, `RKB_PROMPTS_PATH`, in-memory only) → `mlflow.genai.evaluate`
 with THREE separate dimension scorers plus a plausible-reasoning Guidelines
 scorer → assert three DISTINCT dimension metrics were produced (EVAL-02 "graded
 separately") and print all of their means.
@@ -21,7 +21,7 @@ Scorers (each → its own distinct MLflow metric key — never one blended score
 
 Design mirrors the repo harness convention (`src/deploy/test_supervisor.py`):
   - Step 0 host-safety gate (`preflight.assert_target_host`) — refuses any
-    workspace but l26d62 (T-07-03).
+    workspace but the reference workspace (T-07-03).
   - Warm-endpoint READY guard — exits non-zero rather than re-provisioning; a
     forced re-provision would reset the per-tile SSP (T-07-08). This harness
     only ever reuses the warm endpoint by name.
@@ -59,7 +59,7 @@ from shadow_loader import load_shadow  # noqa: E402
 import scorers as eval_scorers  # noqa: E402
 from scorers import citation_groundedness  # noqa: E402
 
-EXPERIMENT = "/Shared/fis-rnd-eval"
+EXPERIMENT = "/Shared/rkb-eval"
 
 # The phase report the --shadow run writes (in-repo, committed). It carries
 # metrics + verdicts ONLY — never verbatim Prompts.md answer-key text or the
@@ -148,7 +148,7 @@ def main():
 
     # Point MLflow at the SAME profile the harness host-gated, not whatever the
     # ambient ~/.databrickscfg default is (which may be a different workspace/PAT).
-    # The profile-qualified tracking URI keeps MLflow on l26d62 (T-07-03 —
+    # The profile-qualified tracking URI keeps MLflow on the reference workspace (T-07-03 —
     # otherwise the run would silently land in the wrong workspace).
     mlflow.set_tracking_uri(f"databricks://{args.profile}")
     mlflow.set_experiment(EXPERIMENT)

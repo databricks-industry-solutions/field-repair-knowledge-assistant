@@ -39,7 +39,7 @@ cannot silently inflate the corpus.
 
 The source ticket markdown ships with the repo under `data/servicenow/` (so the bundle
 is self-contained and the pipeline runs in any workspace); `parse_tickets.py` resolves
-that path relative to itself, overridable via `FIS_SAMPLE_DIR`. The source tickets are
+that path relative to itself, overridable via `RKB_SAMPLE_DIR`. The source tickets are
 markdown, so they are parsed with plain string/regex work.
 **Do not** reach for `ai_parse_document` here: the text is already text, and OCR
 would be both slower and region-gated.

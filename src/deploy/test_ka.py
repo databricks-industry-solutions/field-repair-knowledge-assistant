@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-FIS AI Knowledge Agent — Phase 4 Knowledge-Assistant ISOLATION harness.
+Field Repair Knowledge Assistant — Phase 4 Knowledge-Assistant ISOLATION harness.
 
 Re-runnable assertion harness that proves the deployed Knowledge Assistant
 (`ka-97df484b-endpoint`, KA id 97df484b-f50a-4042-ad2f-0be5a3ce6779, built in
 Plan 04-01) works CORRECTLY IN ISOLATION (D-09, no Supervisor) over the
-223-ticket corpus. Mirrors the structured-verdict pattern of
+sample corpus. Mirrors the structured-verdict pattern of
 `parse/validate_tickets.py` and reuses the Phase-1 `preflight` primitives
 (host-assertion gate + serverless SQL `run_sql`).
 
@@ -77,7 +77,7 @@ CORPUS = f"{FQ}.rd_tasks_serving"
 
 # The KA serving endpoint is DISCOVERED from the (possibly suffixed) display name at
 # runtime — never hardcoded, which is wrong for any fresh/dev/isolated deploy.
-KA_DISPLAY_BASE = "fis-rnd-knowledge-assistant-serving"
+KA_DISPLAY_BASE = "rkb-knowledge-assistant-serving"
 KA_ENDPOINT = ""  # filled in main() via resolve_ka_endpoint()
 
 # The A1 terminology prompt (04-CONTEXT <specifics>) — anchors KA-03/04.

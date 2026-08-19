@@ -12,6 +12,11 @@ frontend/tsconfig.tsbuildinfo
 # Databricks bundle state
 .databricks/
 
+# Generated code-graph output (graphify) + Isaac config — local analysis artifacts,
+# not template content.
+graphify-out/
+.isaac/
+
 # Generated build/verify reports written by the deploy + test scripts at runtime.
 # These carry workspace-specific coordinates (catalog/schema/endpoint ids), so they
 # are validation artifacts, not template content.

@@ -9,7 +9,7 @@ as a native `apps` bundle resource.
 
 ## Front-door chat
 
-`src/deploy/` + `resources/apps.yml` → app `fis-rnd-frontdoor`
+`src/deploy/` + `resources/apps.yml` → app `rkb-frontdoor`
 
 The engineer-facing surface. Chat box, cited answers, clickable ticket chips.
 
@@ -21,7 +21,7 @@ retrieves tickets they are entitled to, and the audit trail names a person.
 
 `user_api_scopes: [serving.serving-endpoints]` is required for this, and the DAB
 App resource schema has **no field for it** — so a small post-deploy job applies it
-(`fis_frontdoor_authz`). That is a genuine gap, not an oversight.
+(`rkb_frontdoor_authz`). That is a genuine gap, not an oversight.
 
 ### Surviving the 120s proxy limit
 

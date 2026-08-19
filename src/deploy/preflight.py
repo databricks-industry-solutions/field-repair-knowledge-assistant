@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-FIS AI Knowledge Agent — Phase 1 Environment Preflight harness.
+Field Repair Knowledge Assistant — Phase 1 Environment Preflight harness.
 
 Re-runnable proof that the target Databricks workspace
-(fevm-serverless-stable-l26d62, o=7474646739115164) can support the entire
+(the reference workspace) can support the entire
 Agent Bricks build. Produces .planning/phases/01-environment-preflight/01-PREFLIGHT-REPORT.md
 with a per-criterion PASS/FAIL/BLOCKED evidence table.
 
@@ -38,19 +38,19 @@ from pathlib import Path
 # Host safety gate. Its job is to refuse to build into the WRONG workspace, which
 # matters because these scripts create catalogs, agents and apps.
 #
-# In this template it is CONFIGURABLE rather than pinned: set FIS_TARGET_HOST to a
+# In this template it is CONFIGURABLE rather than pinned: set RKB_TARGET_HOST to a
 # fragment of your own workspace hostname. Leave it unset and the gate is DISABLED
 # (any authenticated workspace is accepted) — convenient for a first run, but set it
 # before you point this at anything you care about.
-TARGET_HOST_FRAGMENT = os.environ.get("FIS_TARGET_HOST", "")
-TARGET_WORKSPACE_ID = os.environ.get("FIS_TARGET_WORKSPACE_ID", "")
-DEFAULT_PROFILE = os.environ.get("FIS_PROFILE", "DEFAULT")
+TARGET_HOST_FRAGMENT = os.environ.get("RKB_TARGET_HOST", "")
+TARGET_WORKSPACE_ID = os.environ.get("RKB_TARGET_WORKSPACE_ID", "")
+DEFAULT_PROFILE = os.environ.get("RKB_PROFILE", "DEFAULT")
 
-# Demo location. Proposed fis_demo.knowledge_agent required CREATE CATALOG on the
+# Demo location. Proposed rkb_demo.knowledge_agent required CREATE CATALOG on the
 # metastore, which the demo principal lacks; per CONTEXT D-03 ("adjust to workspace
 # UC conventions") we use a dedicated schema in the existing managed catalog instead.
-DEMO_CATALOG = os.environ.get("FIS_CATALOG", "main")
-DEMO_SCHEMA = os.environ.get("FIS_SCHEMA", "troubleshooting_knowledge_agent")
+DEMO_CATALOG = os.environ.get("RKB_CATALOG", "main")
+DEMO_SCHEMA = os.environ.get("RKB_SCHEMA", "troubleshooting_knowledge_agent")
 
 FM_MODELS = ["databricks-claude-sonnet-4-5", "databricks-claude-haiku-4-5"]
 # databricks-claude-sonnet-4 (no suffix) is DEPRECATED — never query it.
@@ -254,7 +254,7 @@ def check_env02(profile):
         if hv.get("mas_preview_enabled") is False:
             return verdict("ENV-02 Multi-Agent Supervisor preview enabled", "BLOCKED",
                            "Account-admin reported MAS preview OFF/absent",
-                           "Account admin: Account Console (o=7474646739115164) → Previews → enable 'Multi-Agent Supervisor'")
+                           "Account admin: Account Console () → Previews → enable 'Multi-Agent Supervisor'")
     return verdict("ENV-02 Multi-Agent Supervisor preview enabled", "AWAITING HUMAN",
                    f"tiles API reachable={'200' if tiles_ok else 'FAIL'}; no recorded human verification",
                    "Account admin: confirm 'Multi-Agent Supervisor' toggle on the account Previews page, then record it in preflight/env02_human_verification.json")

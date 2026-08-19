@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FIS AI Knowledge Agent — Phase 3 ai_query narrative generation.
+Knowledge Agent — Phase 3 ai_query narrative generation.
 
 Runs ONE batch `ai_query` pass (databricks-claude-haiku-4-5, json_schema
 responseFormat, failOnError => false) over the `syn_seeds` staging table and
@@ -25,7 +25,7 @@ Design (per CONTEXT D-01/D-03/D-08 + RESEARCH §Generation Architecture):
   - Few-shot the model with 2-3 real dated-note exemplars so tone/format match
     the fingerprint; instruct WIDE length variety (reject uniform) and — for
     acronym-flagged seeds — inline expansion ("the Controller Application (CA)
-    crashed", "swapped the NetBooter (WPS power controller)"). The
+    crashed", "swapped the PowerNode (WPS power controller)"). The
     post-processor re-dates/re-authors note lines deterministically, so the
     model is told to write plain note sentences (no dates/initials needed).
   - Materialize-once: CREATE OR REPLACE TABLE ... AS SELECT ai_query(...). The
@@ -166,7 +166,7 @@ def build_prompt_expr():
         "co-occur.' "
         "WHEN s.acronym_flag = 'WPS' THEN "
         "' Naturally expand the acronym inline the first time, e.g. write "
-        "\"the NetBooter (WPS power controller)\" so the term and its "
+        "\"the PowerNode (WPS power controller)\" so the term and its "
         "expansion co-occur.' "
         "ELSE '' END"
     )

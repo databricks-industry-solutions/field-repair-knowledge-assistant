@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-FIS AI Knowledge Agent — Phase 4 Genie Space ISOLATION harness (Plan 04-04).
+Field Repair Knowledge Assistant — Phase 4 Genie Space ISOLATION harness (Plan 04-04).
 
-Proves the "FIS R&D Tickets" Genie Space works CORRECTLY IN ISOLATION (D-09,
+Proves the "Field Repair Tickets" Genie Space works CORRECTLY IN ISOLATION (D-09,
 no Supervisor) by driving the live Conversation API for the archetype questions,
 retrieving the GENERATED SQL at `attachments[].query.query`, and asserting on the
 SQL SHAPE (per D-07 — inspect the generated SQL, not just the prose answer):
@@ -10,7 +10,7 @@ SQL SHAPE (per D-07 — inspect the generated SQL, not just the prose answer):
   GEN-01  A structured COUNT question reaches COMPLETED with a non-empty result.
   GEN-02  The NM-involvement question's generated SQL JOINs ticket_activity
           (NOT a bare `GROUP BY assigned_to`) and its result ranks
-          Eduardo Cadelina #1 for New Mexico (ground truth: 55).
+          Diego Herrera #1 for New Mexico.
   GEN-03  The delay/complexity question's generated SQL surfaces the signal
           columns (case_age_days / activity_count / max_inactivity_gap_days).
   GEN-04  The open-task question's generated SQL filters status IN
@@ -62,7 +62,7 @@ SCHEMA = _env.SCHEMA
 # The Genie space is DAB-deployed; its id is generated at deploy time, so it is
 # supplied via --space-id (robust to prefixing) or resolved BY TITLE at runtime,
 # never hardcoded. The build-doc parse is a last-resort fallback for a local demo run.
-GENIE_SPACE_TITLE = "FIS R&D Tickets (serving)"
+GENIE_SPACE_TITLE = "Field Repair Tickets (serving)"
 BUILD_DOC = Path(
     ".planning/phases/04-knowledge-assistant-genie-space/04-GENIE-BUILD.md"
 )

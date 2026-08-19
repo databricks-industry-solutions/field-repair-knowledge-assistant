@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-FIS AI Knowledge Agent — Phase 5 Plan 02: Multi-Agent Supervisor ROUTING harness.
+Field Repair Knowledge Assistant — Phase 5 Plan 02: Multi-Agent Supervisor ROUTING harness.
 
 Re-runnable assertion harness that proves the DEPLOYED 3-tool Multi-Agent
-Supervisor (`fis-rnd-supervisor`, endpoint `mas-f5fc28b0-endpoint`, built in Plan
+Supervisor (`rkb-supervisor`, endpoint `the MAS endpoint`, built in Plan
 05-01) routes each of the 5 `Prompts.md` archetypes (plus 1-2 paraphrases each) to
 the correct tool(s), fans out to BOTH KA and Genie on the three hybrid archetypes
 (A2b expert-finding, A3 complexity/delay, A4 priority triage), and produces the
@@ -16,7 +16,7 @@ Verification is content-anchored, NOT prose-trusting:
   * PRIMARY (trace-equivalent): the MAS Responses-API body returns the tool spans
     inline — `output[]` carries `type=="function_call"` / `"function_call_output"`
     items whose `name` is the FULLY-QUALIFIED tool name (dunder-separated, e.g.
-    `serverless_stable_l26d62_catalog__fis_knowledge_agent__glossary_lookup`,
+    `main__rkb_knowledge_agent__glossary_lookup`,
     `ka-97df484b-...`, `genie-01f185f0...`). We derive the fired-set from these
     spans via SUBSTRING matching (never exact equality — the names come back
     fully-qualified/dunder-separated per the 05-01 carry-forward).
@@ -28,7 +28,7 @@ Verification is content-anchored, NOT prose-trusting:
 Design (mirrors src/deploy/test_genie.py + test_ka.py — the repo convention, NOT
 pytest, which is not installed):
   - Step 0 host-assertion gate (reuse preflight.assert_target_host) — refuse any
-    workspace but l26d62 (T-5-01).
+    workspace but the reference workspace (T-5-01).
   - Pre-matrix three-way GRANT GATE (SUP-01, T-5-03): re-assert EXECUTE on
     glossary_lookup + SELECT on rd_tasks_gold_analytics + KA endpoint READY, so a
     routing FAIL is never masked by a missing grant.
@@ -46,6 +46,7 @@ Usage:
 import argparse
 import concurrent.futures
 import json
+import os
 import re
 import subprocess
 import sys
@@ -76,9 +77,9 @@ ANALYTICS_VIEW = f"{CATALOG}.{SCHEMA}.rd_tasks_gold_analytics"
 # backup matchers and need not track a dev deploy. The KA + MAS endpoints ARE
 # discovered by display name at runtime (never hardcoded); base names below.
 KA_TILE_FRAG = "97df484b"
-GENIE_SPACE_FRAG = "01f185f0ce8e15cd9a92d86b3171c52e"
-KA_DISPLAY_BASE = "fis-rnd-knowledge-assistant-serving"
-MAS_DISPLAY_BASE = "fis-rnd-supervisor"
+GENIE_SPACE_FRAG = os.environ.get("RKB_GENIE_SPACE_ID", "")
+KA_DISPLAY_BASE = "rkb-knowledge-assistant-serving"
+MAS_DISPLAY_BASE = "rkb-supervisor"
 KA_ENDPOINT = ""  # discovered in main() from the (suffixed) KA display name
 
 BUILD_DOC = (
@@ -297,7 +298,7 @@ def _classify_tool(name):
         return "glossary"
     if KA_TILE_FRAG in n or "knowledge" in n or n.startswith("ka-"):
         return "KA"
-    if "genie" in n or GENIE_SPACE_FRAG in n:
+    if "genie" in n or (GENIE_SPACE_FRAG and GENIE_SPACE_FRAG in n):
         return "Genie"
     return None
 

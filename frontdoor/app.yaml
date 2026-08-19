@@ -10,7 +10,7 @@ command:
 
 env:
   # Model Serving Endpoint resource binding. deploy.py binds a `serving-endpoint`
-  # resource (key `serving-endpoint`) → the warm MAS `mas-f5fc28b0-endpoint` with
+  # resource (key `serving-endpoint`) → the warm MAS `the MAS endpoint` with
   # permission CAN_QUERY; the runtime injects the endpoint NAME here. server/config.py
   # falls back to the hardcoded default for local dev / portability.
   - name: MAS_ENDPOINT_NAME

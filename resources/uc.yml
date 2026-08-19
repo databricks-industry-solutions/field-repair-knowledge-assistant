@@ -7,11 +7,11 @@
 
 resources:
   schemas:
-    fis:
+    rkb:
       catalog_name: ${var.catalog}
       name: ${var.schema}
       comment: >-
-        FIS AI Knowledge Agent demo. Ticket corpus, enrichment gold layer, the
+        Field Repair Knowledge Assistant demo. Ticket corpus, enrichment gold layer, the
         rd_tasks_serving table that backs BOTH the Knowledge Assistant and Genie,
         and the SME-curated glossary.
 
@@ -22,7 +22,7 @@ resources:
       name: glossary
       volume_type: MANAGED
       comment: >-
-        Curated FIS acronym glossary (glossary.md). Second KA knowledge source.
+        Curated acronym glossary (glossary.md). Second KA knowledge source.
         The KA's files source takes the DIRECTORY path, not the file path.
       # Volumes take `grants`, not `permissions` — different shape from other
       # resource types.

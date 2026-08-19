@@ -56,7 +56,7 @@ def invoke_mas(question: str, user_token: str) -> dict:
 
     Returns the raw Responses-API JSON body. Never logs the token.
     """
-    host = config.get_host()  # asserts the FIS target host
+    host = config.get_host()  # asserts the target host
     url = f"https://{host}/serving-endpoints/{config.MAS_ENDPOINT_NAME}/invocations"
     resp = requests.post(
         url,
@@ -153,7 +153,7 @@ def invoke_mas_streaming(question: str, user_token: str, on_status=None) -> dict
     Falls back to nothing: on any streaming failure the CALLER decides (see
     routes.chat), so a stream problem degrades to the blocking path.
     """
-    host = config.get_host()  # asserts the FIS target host
+    host = config.get_host()  # asserts the target host
     url = f"https://{host}/serving-endpoints/{config.MAS_ENDPOINT_NAME}/invocations"
     output: list[dict] = []
     if on_status:

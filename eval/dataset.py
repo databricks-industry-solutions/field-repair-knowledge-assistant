@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FIS AI Knowledge Agent — Phase 7 Plan 02: claim-decomposed on-wording dataset.
+"""Field Repair Knowledge Assistant — Phase 7 Plan 02: claim-decomposed on-wording dataset.
 
 Builds the 5-archetype MLflow eval dataset (`mlflow.genai.evaluate` `data=`),
 one row per `Prompts.md` archetype. Each row carries:
@@ -17,7 +17,7 @@ CAPABILITY / SHAPE of a good answer, NOT verbatim answer-key text or those
 held-out entities (this file is grep-gated to contain none of them). Facts are
 derived from:
   - the PUBLIC acronym glossary (src/deploy/glossary.md): CA -> Controller
-    Application, HTS, WIM, AUR, OVC, NetBooter, ALPR — safe conceptual anchors;
+    Application, HTS, WIM, AUR, OVC, PowerNode, ALPR — safe conceptual anchors;
   - the SHAPE assertions already proven in src/deploy/test_supervisor.py
     (check_sup04 three priority buckets; check_sup05 sw/hw split + direction).
 
@@ -35,7 +35,7 @@ from pathlib import Path
 
 # Align to the archetypes actually present in the private answer key (count/order
 # only — never copy its text). If the answer key is absent, load_archetypes raises
-# a clear FIS_PROMPTS_PATH error (no fabricated fallback).
+# a clear RKB_PROMPTS_PATH error (no fabricated fallback).
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "eval"))
 from prompts_loader import load_archetypes  # noqa: E402

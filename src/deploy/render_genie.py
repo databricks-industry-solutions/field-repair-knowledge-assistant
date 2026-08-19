@@ -50,7 +50,7 @@ def main():
     schema = args.schema or _env.SCHEMA
     if not catalog or not schema:
         sys.exit("FATAL: catalog/schema required (pass --catalog/--schema or set "
-                 "FIS_CATALOG/FIS_SCHEMA).")
+                 "RKB_CATALOG/RKB_SCHEMA).")
     render(catalog, schema)
 
 

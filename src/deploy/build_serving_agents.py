@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Create the Knowledge Assistant over the single `rd_tasks_serving` table (built as a
-plain Delta table by the `serving` notebook task of the fis_data_pipeline job). The
+plain Delta table by the `serving` notebook task of the rkb_data_pipeline job). The
 KA is script-built because DAB has no native resource type for Agent Bricks
 Knowledge Assistants.
 
@@ -13,7 +13,7 @@ confirm both engines resolve to the same physical rows:
   * Genie -> rd_tasks_serving_analytics          (DAB-deployed, curated view)
 
 The KA `file_col` is IMMUTABLE, so a fresh KA is created rather than repointing an
-existing one; any prior `fis-rnd-knowledge-assistant` is left untouched.
+existing one; any prior `rkb-knowledge-assistant` is left untouched.
 
 Usage:
     python3 src/deploy/build_serving_agents.py --profile serverless-stable --dry-run
@@ -23,6 +23,7 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -46,7 +47,7 @@ from build_ka import (  # noqa: E402
 
 # --- deployment target: catalog/schema/warehouse (see preflight/env.py) ---
 # Centralised so a DAB target can retarget this without editing 14 files.
-# Defaults to the historical l26d62 values, so local runs are unchanged.
+# Defaults to the historical default values, so local runs are unchanged.
 import env as _env  # noqa: E402  (preflight/ already on sys.path above)
 
 WAREHOUSE_ID = _env.WAREHOUSE_ID
@@ -58,13 +59,13 @@ DEFAULT_PROFILE = "serverless-stable"
 T_SERVING = f"{FQ}.rd_tasks_serving"
 V_SERVING_ANALYTICS = f"{FQ}.rd_tasks_serving_analytics"
 KA_CONTENT_COL = "ka_content"
-EXPECTED_ROWS = 223
+EXPECTED_ROWS = int(os.environ.get("RKB_EXPECTED_ROWS", "0"))  # 0 = soft (non-empty only)
 
 # New asset identities — deliberately distinct from the live ones.
-NEW_KA_NAME = "fis-rnd-knowledge-assistant-serving"
+NEW_KA_NAME = "rkb-knowledge-assistant-serving"
 NEW_KA_SOURCE = "rd_tasks_serving_corpus"
-NEW_GENIE_TITLE = "FIS R&D Tickets (serving)"
-GLOSSARY_SOURCE = "fis_glossary"
+NEW_GENIE_TITLE = "Field Repair Tickets (serving)"
+GLOSSARY_SOURCE = "rkb_glossary"
 
 POLL_CEILING_S = 60 * 90
 
@@ -81,7 +82,7 @@ def check_prereqs(profile):
     print("[pre] Checking rd_tasks_serving satisfies both engines...")
     st, cols = run_sql(f"DESCRIBE {T_SERVING}", profile, WAREHOUSE_ID)
     if st != "SUCCEEDED":
-        print(f"FATAL: {T_SERVING} not found — run the fis_data_pipeline job "
+        print(f"FATAL: {T_SERVING} not found — run the rkb_data_pipeline job "
               f"(serving notebook) first.", file=sys.stderr)
         sys.exit(3)
     names = [r[0] for r in (cols or []) if r and r[0] and not r[0].startswith("#")]
@@ -116,7 +117,7 @@ def check_prereqs(profile):
 
     st, r = run_sql(f"SELECT count(*) FROM {V_SERVING_ANALYTICS}", profile, WAREHOUSE_ID)
     if st != "SUCCEEDED":
-        print(f"FATAL: {V_SERVING_ANALYTICS} not readable — run the fis_data_pipeline "
+        print(f"FATAL: {V_SERVING_ANALYTICS} not readable — run the rkb_data_pipeline "
               f"job (serving notebook) first.", file=sys.stderr)
         sys.exit(3)
     print(f"[pre]   metadata ✓  {KA_CONTENT_COL} ✓  table-type ✓  CDF ✓  "
@@ -169,7 +170,7 @@ def build_ka(profile, dry_run=False):
         body = {
             "display_name": NEW_KA_NAME,
             "description": (
-                "Similar-case retrieval + terminology resolution over 223 FIS R&D "
+                "Similar-case retrieval + terminology resolution over R&D "
                 "troubleshooting tickets, reading the consolidated rd_tasks_serving "
                 "table (the SAME physical rows Genie queries), with a curated "
                 "acronym glossary source."
@@ -194,7 +195,7 @@ def build_ka(profile, dry_run=False):
         body = {
             "display_name": NEW_KA_SOURCE,
             "description": (
-                "223 FIS R&D tickets; segmented + glossary-acronym-expanded content "
+                "R&D tickets; segmented + glossary-acronym-expanded content "
                 "in ka_content on the consolidated rd_tasks_serving table. Citations "
                 "resolve via the metadata struct (ticket number in the file path). "
                 "Genie reads the structured columns of this SAME table."
@@ -215,7 +216,7 @@ def build_ka(profile, dry_run=False):
         print(f"[KA] Attaching glossary: {ka_mod.GLOSSARY_VOLUME_PATH}...")
         body = {
             "display_name": GLOSSARY_SOURCE,
-            "description": "Curated FIS acronym glossary (CA=Controller Application, etc.).",
+            "description": "Curated acronym glossary (CA=Controller Application, etc.).",
             "source_type": SOURCE_TYPE_FILES,
             # FilesSpec.path is a DIRECTORY volume path, NOT a single file. Passing
             # the .md file itself returns NOT_FOUND — documented in build_ka.py from
@@ -410,7 +411,7 @@ def verify(profile):
         # Instruction parity with the LIVE KA. This is the check that would have
         # caught the real cause of the old-vs-new answer gap: identical indexed
         # content, different instructions -> 1.2 vs 6.4 avg citations.
-        live_ka = find_ka(profile, "fis-rnd-knowledge-assistant")
+        live_ka = find_ka(profile, "rkb-knowledge-assistant")
         if live_ka:
             _, live, _, _ = api_json("get", f"/api/2.1/{live_ka}", profile)
             same = (ka or {}).get("instructions") == (live or {}).get("instructions")
@@ -446,12 +447,12 @@ def verify(profile):
                        tbl_ok, "yes" if tbl_ok else "NO"))
 
     # Any pre-existing legacy KA must be untouched. NOTE: this KA (unsuffixed
-    # `fis-rnd-knowledge-assistant`) may live in a DIFFERENT schema than this deploy —
-    # e.g. the shared demo `fis_knowledge_agent` while we build into `fis_knowledge_agent_dev`.
+    # `rkb-knowledge-assistant`) may live in a DIFFERENT schema than this deploy —
+    # e.g. the shared demo `rkb_knowledge_agent` while we build into `rkb_knowledge_agent_dev`.
     # The invariant is simply that it is still on ITS OWN `rnd_tickets` corpus (we didn't
     # repoint it), so assert the table name ends in `.rnd_tickets` rather than pinning it to
     # this deploy's schema (which would false-fail on any isolated/suffixed deploy).
-    old_ka = find_ka(profile, "fis-rnd-knowledge-assistant")
+    old_ka = find_ka(profile, "rkb-knowledge-assistant")
     if old_ka:
         _, sp, _, _ = api_json("get", f"/api/2.1/{old_ka}/knowledge-sources", profile)
         old_srcs = (sp or {}).get("knowledge_sources", [])

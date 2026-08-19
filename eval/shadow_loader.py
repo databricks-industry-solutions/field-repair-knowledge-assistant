@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FIS AI Knowledge Agent — Phase 7 Plan 03: blind shadow-prompt loader (EVAL-03).
+"""Field Repair Knowledge Assistant — Phase 7 Plan 03: blind shadow-prompt loader (EVAL-03).
 
 Loads the 15 pre-existing BLIND shadow prompts authored in Phase 3
 (`.planning/phases/03-synthetic-corpus-to-200/03-SHADOW-PROMPTS.md`) into

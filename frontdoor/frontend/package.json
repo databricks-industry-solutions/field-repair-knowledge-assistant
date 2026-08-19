@@ -1,5 +1,5 @@
 {
-  "name": "fis-knowledge-agent-frontdoor",
+  "name": "rkb-knowledge-agent-frontdoor",
   "version": "1.0.0",
   "private": true,
   "type": "module",

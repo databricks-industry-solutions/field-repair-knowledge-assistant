@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FIS AI Knowledge Agent — Phase 6 Front-Door OBO Preflight probe.
+Field Repair Knowledge Assistant — Phase 6 Front-Door OBO Preflight probe.
 
 Re-runnable probe of the ONE hard blocker for Phase 6 (front door): whether
 Databricks Apps **user authorization** (Public Preview) — the on-behalf-of (OBO)
@@ -14,7 +14,7 @@ Why this exists (RESEARCH Environment Availability — "must preflight — hard 
 
 Design (mirrors preflight/preflight.py conventions):
   - Step 0 host-assertion gate: refuses to run any check unless the resolved
-    Databricks host is fevm-serverless-stable-l26d62. Prevents silently probing
+    Databricks host is the reference workspace. Prevents silently probing
     the wrong workspace.
   - Read-only: enumerates app + scope + endpoint metadata only. It NEVER creates,
     updates, or deploys anything, NEVER calls the MAS, and NEVER mints, prints,
@@ -29,18 +29,19 @@ Usage:
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
 from datetime import datetime, timezone
 
-TARGET_HOST_FRAGMENT = "fevm-serverless-stable-l26d62"
-TARGET_WORKSPACE_ID = "7474646739115164"
+TARGET_HOST_FRAGMENT = os.environ.get("RKB_TARGET_HOST", "")
+TARGET_WORKSPACE_ID = os.environ.get("RKB_TARGET_WORKSPACE_ID", "")
 DEFAULT_PROFILE = "serverless-stable"
 
 # The MAS front door will call this endpoint on behalf of the end user (FD-02).
-MAS_ENDPOINT_NAME = "mas-f5fc28b0-endpoint"
-DEMO_PRINCIPAL = "dong.qiaoyang@databricks.com"
+MAS_ENDPOINT_NAME = os.environ.get("MAS_ENDPOINT_NAME", "")
+DEMO_PRINCIPAL = os.environ.get("RKB_PRINCIPAL", "")
 
 # RESEARCH A1 (MEDIUM confidence): the serving OBO scope string sourced from the
 # AppKit model-serving skill reference. This probe records whether the live

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-FIS AI Knowledge Agent — Phase 2 deterministic ticket parser.
+Field Repair Knowledge Assistant — Phase 2 deterministic ticket parser.
 
-Turns the three real ServiceNow sample markdown files into two in-memory
+Turns the three sample ServiceNow markdown files into two in-memory
 record sets:
   - `tickets`    : one dict per ticket (the `rnd_tickets` row shape)
   - `activities` : one dict per actor-event (the `ticket_activity` row shape)
@@ -10,8 +10,8 @@ record sets:
 Design (per CONTEXT D-01..D-08 + RESEARCH §Deterministic Parse Design):
   - Deterministic, stdlib-only (`re`, `datetime`, `pathlib`, `json`) — NO LLM
     extraction, NO external packages. The format is fixed; determinism is the
-    whole point (the demo's credibility rests on this being EXACTLY the
-    client's real tickets).
+    whole point (the demo's credibility rests on this parsing the sample
+    tickets exactly).
   - 23 distinct tickets (R&DTASK0001017 appears in both incomplete + complete
     files — deduped; every file's empty `## Number` template block is skipped).
   - Field-changes multi-line payload = ONE field-change event (never phantom
@@ -46,13 +46,13 @@ from pathlib import Path
 # The ServiceNow ticket corpus ships WITH the repo (data/servicenow/) so the bundle
 # is self-contained: DAB syncs the whole bundle root to the workspace, so when this
 # runs as a serverless job task the files sit next to the code. Resolve the path
-# relative to THIS file (repo root = parents[2]); FIS_SAMPLE_DIR overrides it.
+# relative to THIS file (repo root = parents[2]); RKB_SAMPLE_DIR overrides it.
 # Serverless spark_python_task execs the file WITHOUT defining `__file__`, and sets
 # the CWD to the script's own directory. So resolve the repo root from `__file__`
 # when available (local runs) and fall back to CWD (serverless job task).
 _HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 SAMPLE_DIR = Path(
-    os.environ.get("FIS_SAMPLE_DIR") or (_HERE.parents[1] / "data" / "servicenow")
+    os.environ.get("RKB_SAMPLE_DIR") or (_HERE.parents[1] / "data" / "servicenow")
 )
 
 # Deterministic processing order → deterministic 0001017 dedup (first wins).
@@ -82,20 +82,22 @@ ANTI_LEAKAGE = [
 # a dated note line) are normalized — prose names are never scanned (Pitfall E).
 # Phase 3 can extend this map with new synthetic actors.
 ACTOR_MAP = {
-    "cedar mah": "Cedar Mah", "cmah": "Cedar Mah", "cm": "Cedar Mah",
-    "cedar": "Cedar Mah",
-    "sangwon lim": "Sangwon Lim", "sl": "Sangwon Lim", "sangwon": "Sangwon Lim",
-    "eduardo cadelina": "Eduardo Cadelina", "eduardo": "Eduardo Cadelina",
-    "vipul chavda": "Vipul Chavda", "vchavda": "Vipul Chavda",
-    "vipul": "Vipul Chavda",
-    "bowen butler": "Bowen Butler", "bowen": "Bowen Butler",
-    "ayotunde obawole": "Ayotunde Obawole", "ayo": "Ayotunde Obawole",
-    "ayotunde": "Ayotunde Obawole",
-    "dara ola": "Dara Ola", "dara": "Dara Ola",
-    "joe canganelli": "Joe Canganelli", "joec": "Joe Canganelli",
-    "joe": "Joe Canganelli",
-    "david skinner": "David Skinner", "dskinner": "David Skinner",
-    "skinner": "David Skinner",
+    "priya raman": "Priya Raman", "praman": "Priya Raman", "pr": "Priya Raman",
+    "priya": "Priya Raman",
+    "marcus webb": "Marcus Webb", "mwebb": "Marcus Webb", "mw": "Marcus Webb",
+    "marcus": "Marcus Webb",
+    "diego herrera": "Diego Herrera", "dherrera": "Diego Herrera",
+    "diego": "Diego Herrera",
+    "anil kapoor": "Anil Kapoor", "akapoor": "Anil Kapoor",
+    "anil": "Anil Kapoor",
+    "owen brooks": "Owen Brooks", "obrooks": "Owen Brooks", "owen": "Owen Brooks",
+    "kofi mensah": "Kofi Mensah", "kmensah": "Kofi Mensah",
+    "kofi": "Kofi Mensah",
+    "nadia farah": "Nadia Farah", "nfarah": "Nadia Farah", "nadia": "Nadia Farah",
+    "frank ricci": "Frank Ricci", "fricci": "Frank Ricci",
+    "frank": "Frank Ricci",
+    "dan sherman": "Dan Sherman", "dsherman": "Dan Sherman",
+    "dan": "Dan Sherman", "sherman": "Dan Sherman",
 }
 
 CANONICAL_ACTORS = set(ACTOR_MAP.values())

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""FIS AI Knowledge Agent — Phase 7 Plan 01: MLflow-eval predict_fn over the MAS.
+"""Field Repair Knowledge Assistant — Phase 7 Plan 01: MLflow-eval predict_fn over the MAS.
 
 The system under test is the DEPLOYED Multi-Agent Supervisor (endpoint
-`mas-f5fc28b0-endpoint`, Responses API `{"input":[...]}`) — the same endpoint the
+`the MAS endpoint`, Responses API `{"input":[...]}`) — the same endpoint the
 front door calls (CONTEXT LOCK: eval the endpoint, not KA/Genie in isolation).
 This is the deliberate, documented exception to the skill's "import the agent
 locally" guidance: there is no local MAS to import — it is a managed Agent Bricks

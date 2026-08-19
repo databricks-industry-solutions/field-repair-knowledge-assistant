@@ -7,15 +7,15 @@
 #
 # The front door needs USER AUTHORIZATION (OBO) so it calls the MAS as the signed-in
 # engineer, never as the app service principal. DAB does not express the
-# user_api_scopes field, so frontdoor/deploy.py still owns that one step — see the
-# note in jobs_agents.yml.
+# user_api_scopes field, so src/deploy/frontdoor_deploy.py still owns that one step —
+# see the note in jobs_agents.yml.
 
 resources:
   apps:
     frontdoor:
       name: ${var.app_name}
       description: >-
-        FIS R&D Knowledge Agent front door. Chat UI over the Multi-Agent
+        Field Repair Knowledge Assistant front door. Chat UI over the Multi-Agent
         Supervisor, called on behalf of the signed-in user (OBO).
       source_code_path: ../frontdoor
       resources:

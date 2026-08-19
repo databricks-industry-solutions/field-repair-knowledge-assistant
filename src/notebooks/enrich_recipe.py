@@ -1,4 +1,4 @@
-"""FIS AI Knowledge Agent — the SINGLE-SOURCE enrichment recipe.
+"""Field Repair Knowledge Assistant — the SINGLE-SOURCE enrichment recipe.
 
 Pure, dependency-free string/schema builders for the Lakeflow Declarative
 Pipeline: the `ai_query` responseFormat + system prompt (gold_enrichment.py) and
@@ -132,7 +132,7 @@ def build_response_format(systems, vendors):
 def build_system_prompt(systems, vendors, acr):
     acr_block = "; ".join(f"{k} = {v}" for k, v in sorted(acr.items()))
     prompt = (
-        "You enrich Fleetworthy roadside truck-screening R&D tickets (weigh-in-motion, "
+        "You enrich roadside truck-screening R&D tickets (weigh-in-motion, "
         "license-plate/DOT reading, cameras at highway inspection sites) into structured data. "
         "Use ONLY these systems: " + json.dumps(systems) + ". Use ONLY these vendors: "
         + json.dumps(vendors) + ". "
@@ -173,7 +173,7 @@ def decascade(acr_map):
 
     The expansions are applied as a CHAIN of regexp_replace, so text inserted by
     an earlier link is still visible to later ones. Four approved definitions name
-    another acronym (PIPS->ALPR, CA->HTS, GOBI->ATIS, DW->SRIS), which produced
+    another acronym (Aptix->ALPR, CA->HTS, Falcon->ATIS), which produced
     nested garbage in the indexed content. The patterns are case-SENSITIVE, so
     lower-casing a cross-referenced token ("ALPR" -> "alpr") makes it unmatchable
     by every later link while KEEPING the word. Only affects DEFINITION text.

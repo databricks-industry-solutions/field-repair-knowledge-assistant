@@ -5,11 +5,11 @@
   },
   {
     "question": "What does WPS refer to in the roadside power tickets?",
-    "guideline": "Should link WPS to the NetBooter networked power controller (same role), hedge, and cite the glossary and/or tickets. Should note WPS and NetBooter are used interchangeably."
+    "guideline": "Should link WPS to the PowerNode networked power controller (same role), hedge, and cite the glossary and/or tickets. Should note WPS and PowerNode are used interchangeably."
   },
   {
-    "question": "What does 'Vimba' mean and where does it show up?",
-    "guideline": "Should identify Vimba as camera viewer/SDK tooling (Allied Vision), hedge, cite the glossary and/or co-occurring camera tickets, and avoid asserting an unsourced definition."
+    "question": "What does 'CamView' mean and where does it show up?",
+    "guideline": "Should identify CamView as camera viewer/SDK tooling, hedge, cite the glossary and/or co-occurring camera tickets, and avoid asserting an unsourced definition."
   },
   {
     "question": "A WIM site is reporting zero or implausible axle weights. Have we seen this before, and what fixed it?",
@@ -25,7 +25,7 @@
   },
   {
     "question": "Have any sites needed the roadside equipment power-cycled remotely, and how was it done?",
-    "guideline": "Should retrieve tickets involving NetBooter/WPS remote power-cycling, cite them, and describe the procedure used. Should connect WPS and NetBooter as the same role."
+    "guideline": "Should retrieve tickets involving PowerNode/WPS remote power-cycling, cite them, and describe the procedure used. Should connect WPS and PowerNode as the same role."
   },
   {
     "question": "What are the recurring issues at our New Mexico sites, and how should we approach them?",

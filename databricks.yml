@@ -1,4 +1,4 @@
-# FIS AI Knowledge Agent — Databricks Asset Bundle
+# Field Repair Knowledge Assistant — Databricks Asset Bundle
 #
 # Packages the whole demo: UC objects, the data pipeline, the Genie space, the two
 # apps, and the Agent Bricks assets.
@@ -16,7 +16,7 @@
 #
 # So:
 #   native      — schema, volume, genie_space, and the app
-#   job-wrapped — the whole data pipeline runs as one job (fis_data_pipeline): bronze
+#   job-wrapped — the whole data pipeline runs as one job (rkb_data_pipeline): bronze
 #                 ingest + silver + glossary as spark_python_task, then gold enrichment
 #                 and the serving table as serverless notebook_task notebooks
 #                 (src/notebooks/); plus the KA + MAS builds (no DAB resource type exists
@@ -28,7 +28,7 @@
 # -----------
 # The build scripts resolve catalog/schema/warehouse through src/deploy/env.py,
 # which reads --catalog/--schema/--warehouse-id flags (passed by the job tasks) or
-# FIS_CATALOG / FIS_SCHEMA / FIS_WAREHOUSE_ID. Defaults are NEUTRAL — there is no
+# RKB_CATALOG / RKB_SCHEMA / RKB_WAREHOUSE_ID. Defaults are NEUTRAL — there is no
 # default warehouse — so nothing silently writes into someone else's catalog.
 
 bundle:
@@ -57,7 +57,7 @@ sync:
 
 variables:
   catalog:
-    description: UC catalog holding every FIS asset.
+    description: UC catalog holding every project asset.
     default: main
   schema:
     description: UC schema inside the catalog.
@@ -77,16 +77,16 @@ variables:
   mas_endpoint_name:
     description: >-
       Multi-Agent Supervisor serving endpoint, bound BY NAME to the app. Created by
-      the fis_agents job (Agent Bricks), NOT by this bundle — never re-create it, that
+      the rkb_agents job (Agent Bricks), NOT by this bundle — never re-create it, that
       resets the per-tile authorization. Set this to the endpoint the job reports.
-    default: ""  # set after the fis_agents job creates the supervisor
+    default: ""  # set after the rkb_agents job creates the supervisor
   app_name:
     description: >-
       Front-door app name. The default is the shared demo identity; override per dev
-      deploy (`--var app_name=fis-rnd-frontdoor-dev`) so a dev deploy gets its own app
+      deploy (`--var app_name=rkb-frontdoor-dev`) so a dev deploy gets its own app
       instead of colliding with the shared one. App names: lowercase letters, digits,
       and hyphens only.
-    default: fis-rnd-frontdoor
+    default: rkb-frontdoor
   agent_suffix:
     description: >-
       Suffix appended to the Knowledge Assistant + Multi-Agent Supervisor display names

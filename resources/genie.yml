@@ -11,16 +11,16 @@
 #     "/api/2.0/genie/spaces/<id>?include_serialized_space=true" \
 #     -p serverless-stable \
 #     | python3 -c "import json,sys; print(json.load(sys.stdin)['serialized_space'])" \
-#     > src/genie/fis_rnd_serving.json
+#     > src/genie/rkb_serving.json
 #
 # A plain GET omits serialized_space entirely — the query param is required.
 
 resources:
   genie_spaces:
-    fis_rnd_serving:
-      title: FIS R&D Tickets (serving)
+    rkb_serving:
+      title: Field Repair Tickets (serving)
       description: >-
-        FIS R&D task analytics over the consolidated rd_tasks_serving table — the
+        R&D task analytics over the consolidated rd_tasks_serving table — the
         SAME physical rows the Knowledge Assistant retrieves from. Counts,
         durations, expert-finding, priority triage and site-pattern analysis.
       warehouse_id: ${var.warehouse_id}

@@ -39,7 +39,7 @@
       {
         "identifier": "{{CATALOG}}.{{SCHEMA}}.rd_tasks_serving_analytics",
         "description": [
-          "PURPOSE: Curated analytics view — one row per FIS R&D task (223 rows) enriched by LLM into canonical structured columns plus a meaning-segmented description. Use for counts, durations, expert-finding, priority and site-pattern analysis. GRAIN: one row per task `task_number` (e.g. R&DTASK0001006). ARRAY COLUMNS: `systems_involved`, `hardware_mentioned`, `vendors` are ARRAYS — filter membership with array_contains(). TEXT COLUMNS: `title`, `summary`, `customer_impact`, `troubleshooting`, `recommendation`, `root_cause`, `resolution` carry free text — match jargon with ILIKE. FILTER RULE (critical): the caller passes a domain term with its `category`. A term is a `systems_involved` value ONLY if category=system → array_contains(systems_involved,'<term>'). For ANY OTHER category (software, hardware, vendor, process, …) the term is NOT in the arrays → match it in the TEXT columns with ILIKE '%term%'. Never put a non-system term in array_contains — it returns a false 0."
+          "PURPOSE: Curated analytics view — one row per R&D task enriched by LLM into canonical structured columns plus a meaning-segmented description. Use for counts, durations, expert-finding, priority and site-pattern analysis. GRAIN: one row per task `task_number` (e.g. R&DTASK0001006). ARRAY COLUMNS: `systems_involved`, `hardware_mentioned`, `vendors` are ARRAYS — filter membership with array_contains(). TEXT COLUMNS: `title`, `summary`, `customer_impact`, `troubleshooting`, `recommendation`, `root_cause`, `resolution` carry free text — match jargon with ILIKE. FILTER RULE (critical): the caller passes a domain term with its `category`. A term is a `systems_involved` value ONLY if category=system → array_contains(systems_involved,'<term>'). For ANY OTHER category (software, hardware, vendor, process, …) the term is NOT in the arrays → match it in the TEXT columns with ILIKE '%term%'. Never put a non-system term in array_contains — it returns a false 0."
         ],
         "column_configs": [
           {
@@ -143,7 +143,7 @@
           {
             "column_name": "systems_involved",
             "description": [
-              "ARRAY of screening systems (category=system terms only, e.g. ALPR, ATIS, ATPS, AUR, HTS, OVC, SRIS, SmartLoop, WIM). Filter a SYSTEM term with array_contains(systems_involved,'<term>'). A non-system term (e.g. CA) is NOT here — match it in TEXT columns with ILIKE."
+              "ARRAY of screening systems (category=system terms only, e.g. ALPR, ATIS, AUR, HTS, OVC, WIM, LoopSense). Filter a SYSTEM term with array_contains(systems_involved,'<term>'). A non-system term (e.g. CA) is NOT here — match it in TEXT columns with ILIKE."
             ],
             "synonyms": [
               "systems",
@@ -167,7 +167,7 @@
           {
             "column_name": "vendors",
             "description": [
-              "ARRAY of vendors (category=vendor terms, e.g. Neology, Kistler, PIPS). Filter with array_contains()."
+              "ARRAY of vendors (category=vendor terms, e.g. Lumex, Veridyne, Aptix). Filter with array_contains()."
             ],
             "synonyms": [
               "vendor",
@@ -184,7 +184,7 @@
       {
         "id": "05ef3d3125ce4502b29de336d8651408",
         "content": [
-          "This space covers Fleetworthy R&D tasks for highway truck-screening sites (one row per task in rd_tasks_serving_analytics).\n",
+          "This space covers R&D tasks for highway truck-screening sites (one row per task in rd_tasks_serving_analytics).\n",
           "\n",
           "FILTERING RULE (the one rule that must never be violated):\n",
           "- `systems_involved`, `hardware_mentioned`, and `vendors` are ARRAYS. The caller passes each domain term with its `category`.\n",

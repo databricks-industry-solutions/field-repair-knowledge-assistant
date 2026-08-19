@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FIS AI Knowledge Agent — Phase 7 Plan 02 Task 2 (TDD RED): scorer tests.
+"""Field Repair Knowledge Assistant — Phase 7 Plan 02 Task 2 (TDD RED): scorer tests.
 
 Exercises the two DETERMINISTIC citation_groundedness branches without hitting
 the live judge:

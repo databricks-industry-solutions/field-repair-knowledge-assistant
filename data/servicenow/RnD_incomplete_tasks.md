@@ -24,7 +24,7 @@
 
 
 
-# TX Falfurrias  – US281 NB -Kistler - Prepass reporting  0 Weight , 0 Classification and 0 Spacing
+# TX Belmont  – US281 NB - Veridyne - BypassPro reporting  0 Weight , 0 Classification and 0 Spacing
 
 ## Number
 R&DTASK0001002
@@ -33,7 +33,7 @@ SDC0001005
 ## Assignment group
 R&D
 ## Assigned to
-Cedar Mah
+Priya Raman
 
 ## Priority
 
@@ -46,108 +46,105 @@ Closed Incomplete
 Completed
 ## Follow up
 ## Location
-TX Falfurrias US-281 NB
+TX Belmont US-281 NB
 
 ## Description
-Issue: Prepass reporting  0 Weight , 0 Classification and 0 Spacing
+Issue: BypassPro reporting  0 Weight , 0 Classification and 0 Spacing
 
 
-Investigation- 1. Using the suspect vehicles time stamps provided by PrePass,  looked for and compared Kistler data in the corresponding SRIS vehicle events
+Investigation- 1. Using the suspect vehicles time stamps provided by BypassPro,  looked for and compared Veridyne data in the corresponding SRIS vehicle events
 	       2. Verified Overview image of vehicles in Vehicle Live summary for lane changes, non commercial vehicles, off scale situations
-               3. Searched Kistlers historical records for time stamps 4. Checked SmartLoop detections
+               3. Searched Veridynes historical records for time stamps 4. Checked LoopSense detections
 
-Findings-  1. Kistler data on Vehicle Live Summary do show 0 GVW, 0 axle and class 15 for the matched vehicle records
-           2. Kistler records show - 1 lb for the matched vehicle records 3. SmartLoop shows loop counts are identical  4. SensorEdgeDriving is common 5.  There are some images that show vehicles centered but still get SensorEdgeDriving warnings
-
-
-
-SRIS Cabinet-PrePass WIM Interface Install, Site - 
+Findings-  1. Veridyne data on Vehicle Live Summary do show 0 GVW, 0 axle and class 15 for the matched vehicle records
+           2. Veridyne records show - 1 lb for the matched vehicle records 3. LoopSense shows loop counts are identical  4. SensorEdgeDriving is common 5.  There are some images that show vehicles centered but still get SensorEdgeDriving warnings
 
 
-Brian,
-Can you have a look at the Falfurrias NB TX WIM.  There appears to be a problem.
+
+SRIS Cabinet-BypassPro WIM Interface Install, Site - 
+
+
+Sam,
+Can you have a look at the Belmont NB TX WIM.  There appears to be a problem.
 vehicle classification is 0, missing vehicle lengths, missing axle spacings.
-This is the raw wim data file to PrePass.
-[A screenshot of a computer    Description automatically generated]
-
-[cid:image002.png@01DB303E.B59EF240]
+This is the raw wim data file to BypassPro.
+[image: raw WIM data screenshot]
 
 
 
 
-[cid:hhRri9Ri0UmWBdeLyiGVQNEW-PP_Vert_Color_RGB_png]    David Covington
+[image: BypassPro contact card]    Jordan Blake
 Field Service Systems Technician Supervisor
-David.Covington@prepass.com
-Mobile: 352-467-4340
-www.prepass.com<http://www.prepass.com/>
+jblake@example.com
+Mobile: 555-0142
 
 ## Notes
-Issue: Prepass reporting  0 Weight , 0 Classification and 0 Spacing
+Issue: BypassPro reporting  0 Weight , 0 Classification and 0 Spacing
 
-2024-12-10 cm
+2024-12-10 pr
 Looked up 3 records using the DOT # and the corresponding records all had weights associated with them, so the wim itself is working.
-The only other interface between IRD and us is the SRA.
-Also noticed that there were some '0' weights in DW SRIS Live Summary
+The only other interface between the WIM vendor and us is the SRA.
+Also noticed that there were some '0' weights in the SRIS Live Summary
 
 
 
 
 
 
-  
+  
 
 
 
-Investigation- 1. Using the suspect vehicles time stamps provided by PrePass,  looked for and compared Kistler data in the corresponding SRIS vehicle events
-           2. Verified Overview image of vehicles in Vehicle Live summary for lane changes, non commercial vehicles, off scale situations
-               3. Searched Kistlers historical records for time stamps
+Investigation- 1. Using the suspect vehicles time stamps provided by BypassPro,  looked for and compared Veridyne data in the corresponding SRIS vehicle events
+           2. Verified Overview image of vehicles in Vehicle Live summary for lane changes, non commercial vehicles, off scale situations
+               3. Searched Veridynes historical records for time stamps
 
-Findings-  1. Kistler data on Vehicle Live Summary do show 0 GVW, 0 axle and class 15 for the matched vehicle records
-           2. Kistler records show - 1 lb for the matched vehicle records  3.  Many messages are SensorEdgeDriving 
+Findings-  1. Veridyne data on Vehicle Live Summary do show 0 GVW, 0 axle and class 15 for the matched vehicle records
+           2. Veridyne records show - 1 lb for the matched vehicle records  3.  Many messages are SensorEdgeDriving 
 
 
 
 ## Close Notes
 Looked up 3 records using the DOT # and the corresponding records all had weights associated with them, so the wim itself is working.
-The only other interface between IRD and us is the SRA.
-Also noticed that there were some '0' weights in DW SRIS Live Summary
+The only other interface between the WIM vendor and us is the SRA.
+Also noticed that there were some '0' weights in the SRIS Live Summary
 
 
 ## Activities
-cmah@drivewyze.com
+praman@example.com
 Image uploaded•2024-12-10 11:55:40
 
-cmah@drivewyze.com
+praman@example.com
 Image uploaded•2024-12-10 11:46:00
 
-cmah@drivewyze.com
+praman@example.com
 Image uploaded•2024-12-10 11:45:45
 
-cmah@drivewyze.com
+praman@example.com
 Image uploaded•2024-12-10 11:45:26
 
-cmah@drivewyze.com
+praman@example.com
 Image uploaded•2024-12-10 11:42:58
 
-dskinner@drivewyze.com
+dsherman@example.com
 Field changes•2024-11-08 14:43:55
-Assigned toCedar Mah
+Assigned toPriya Raman
 Impact3 - Low
-Opened byDavid Skinner
+Opened byDan Sherman
 Priority2 - High
 StatusClosed Incomplete
 
-dskinner@drivewyze.com
+dsherman@example.com
 Attachment uploaded•2024-11-08 14:43:37
-2024-11-07 TX Falfurias PrePass Kistler Data Issue.xlsx1.01 MB
+2024-11-07 TX Belmont BypassPro Veridyne Data Issue.xlsx1.01 MB
 
-dskinner@drivewyze.com
+dsherman@example.com
 Attachment uploaded•2024-11-08 14:30:35
-RE_ TX Falfurias WIM Investigation - David Skinner - Outlook.pdf1.83 MB
+RE_ TX Belmont WIM Investigation - Dan Sherman - Outlook.pdf1.83 MB
 
 
 
-# TN Haywood I-40 EB - The USB Alpr camera is down
+# TN Bedford I-40 EB - The USB Alpr camera is down
 
 ## Number
 R&DTASK0001029
@@ -156,7 +153,7 @@ SDC0001813
 ## Assignment group
 R&D
 ## Assigned to
-Cedar Mah
+Priya Raman
 
 ## Priority
 
@@ -169,32 +166,32 @@ Closed Incomplete
 Assigned
 ## Follow up
 ## Location
-TN Haywood I-40 EB
+TN Bedford I-40 EB
 
 ## Description
 A new USB camera, cable and Hts computer has been pulled, testing is required before shipping them out.
 
 ## Notes
-2025-11-13 - Vipul - Cedar has tested USB cameras, but they don't seem to work...his recommendation is to replace with IP camera. Task has been assigned to Engineering Services team.
+2025-11-13 - Anil - Priya has tested USB cameras, but they don't seem to work...her recommendation is to replace with IP camera. Task has been assigned to Engineering Services team.
 
 ## Close Notes
-Cedar has tested USB cameras, but they don't seem to work...his recommendation is to replace with IP camera. Task has been assigned to Engineering Services team.
+Priya has tested USB cameras, but they don't seem to work...her recommendation is to replace with IP camera. Task has been assigned to Engineering Services team.
 
 ## Activities
-Vipul Chavda
+Anil Kapoor
 Additional comments•2025-11-13 11:47:46
-@Cedar Mah can you please give us an update on this?
+@Priya Raman can you please give us an update on this?
 
-Vipul Chavda
+Anil Kapoor
 Additional comments•2025-10-09 11:35:53
-@Cedar Mah we need recommendation on this, please!
+@Priya Raman we need recommendation on this, please!
 
 
-Dara Ola
+Nadia Farah
 Field changes•2025-08-21 09:52:31
-Assigned toCedar Mah
+Assigned toPriya Raman
 Impact3 - Low
-Opened byDara Ola
+Opened byNadia Farah
 Priority3 - Moderate
 StatusClosed Incomplete
 
@@ -202,7 +199,7 @@ StatusClosed Incomplete
 
 
 
-# TX Loving County 302 WB - WIM Weights High
+# TX Delmar County 302 WB - WIM Weights High
 
 ## Number
 R&DTASK0001033
@@ -211,7 +208,7 @@ SDC0002419
 ## Assignment group
 R&D
 ## Assigned to
-Cedar Mah
+Priya Raman
 
 
 ## Priority
@@ -225,11 +222,11 @@ Closed Skipped
 Assigned
 ## Follow up
 ## Location
-TX Loving County 302WB
+TX Delmar County 302WB
 
 ## Description
 1.	Detailed description/ Summary of issue
-Corporal Arnold Reeves called to let us know the WIM weights are about 6,000 lbs off (high) and he says tandem axles are counting as single axles.
+Sergeant Alan Pierce called to let us know the WIM weights are about 6,000 lbs off (high) and he says tandem axles are counting as single axles.
 
 2.	What is the impact to the customer?
 More trucks than necessary are being pulled in.
@@ -241,24 +238,24 @@ N/A
 Investigate this issue. I don't know if this will require a recalibration.
 
 ## Notes
-2025-10-21 Bowen - Followed up with Cedar
+2025-10-21 Owen - Followed up with Priya
 
-2025-10-09 #AYO# Cedar confirmed He was going to update the kistler firmware so that He can take a closer look at the wim data as well, but got distracted.  He said he will do that today, or tonight when traffic is lighter.
+2025-10-09 #KOFI# Priya confirmed She was going to update the Veridyne firmware so that She can take a closer look at the wim data as well, but got distracted.  She said she will do that today, or tonight when traffic is lighter.
 
 ## Close Notes
 We are not sure what we did to fix this. But the station confirmed that the data is better than before.
 
 ## Activities
-Vipul Chavda
+Anil Kapoor
 Additional comments•2025-11-13 11:53:02
-@Cedar Mah we are closing this case. My team expects the assignee to close these tasks but since this was still open, I will close it.
+@Priya Raman we are closing this case. My team expects the assignee to close these tasks but since this was still open, I will close it.
 
 
-Ayotunde Obawole
+Kofi Mensah
 Field changes•2025-10-07 15:56:05
-Assigned toCedar Mah
+Assigned toPriya Raman
 Impact3 - Low
-Opened byAyotunde Obawole
+Opened byKofi Mensah
 Priority3 - Moderate
 StatusClosed Skipped
 
@@ -270,13 +267,7 @@ StatusClosed Skipped
 
 
 
-
-
-
-
-
-
-# NM Texico US-60/US-70/US-84 WB-HTS Controller Web  Application keeps crashing
+# NM Clearwater US-60/US-70/US-84 WB-HTS Controller Web  Application keeps crashing
 
 ## Number
 R&DTASK0001017
@@ -285,7 +276,7 @@ SDC0001253
 ## Assignment group
 R&D
 ## Assigned to
-Cedar Mah
+Priya Raman
 
 ## Priority
 
@@ -298,7 +289,7 @@ Closed Skipped
 Assigned
 ## Follow up
 ## Location
-NM Texico US-60/US-70/US-84 WB
+NM Clearwater US-60/US-70/US-84 WB
 
 ## Description
 1.	Detailed description/ Summary of issue
@@ -317,20 +308,20 @@ No
 
 
 ## Close Notes
-2025-03-31-Eduardo
+2025-03-31-Diego
 
 Support not required anymore. HTS system is now working fine.
 
 ## Activities
-Eduardo Cadelina
+Diego Herrera
 Field changes•2025-02-21 10:24:59
-Assigned toCedar Mah
+Assigned toPriya Raman
 Impact3 - Low
-Opened byEduardo Cadelina
+Opened byDiego Herrera
 Priority2 - High
 StatusClosed Skipped
 
-Eduardo Cadelina
+Diego Herrera
 Image uploaded•2025-02-21 10:24:44
 
 
@@ -344,7 +335,7 @@ SDC0002304
 ## Assignment group
 R&D
 ## Assigned to
-Sangwon Lim
+Marcus Webb
 
 ## Priority
 
@@ -357,7 +348,7 @@ Closed Incomplete
 Assigned
 ## Follow up
 ## Location
-DE Middletown RT-301
+DE Fairport RT-301
 
 ## Description
 1.	Detailed description/ Summary of issue
@@ -373,18 +364,18 @@ Checked the logs. This seemed to occur at the same time as a VWI issue which was
 See if this happens again. If it does, see if it is related to the prior issue or if it is an isolated issue. If it happens again, I may see if R&D recommend checking for firmware updates.
 
 ## Notes
-2025-10-24 Bowen - Sangwon and I talked about creating a keep alive thread, pull a picture every X minutes to keep the camera from idling - message thread in case.
+2025-10-24 Owen - Marcus and I talked about creating a keep alive thread, pull a picture every X minutes to keep the camera from idling - message thread in case.
 
-2025-10-23 Bowen - This issue got progressively more frequent. The OVC would go out every few days. Within a couple weeks, it was going out multiple times a day. During this time, Sangwon checked the logs and found nothing meaningful. He changed the settings and updated the firmware. The camera worked for nearly 2 weeks. It has since started acting up. Currently it experiences this error every 1-2 days. Sangwon disabled the motion recognition. If this does not work, he will reset the camera to factory settings and set it up again.
+2025-10-23 Owen - This issue got progressively more frequent. The OVC would go out every few days. Within a couple weeks, it was going out multiple times a day. During this time, Marcus checked the logs and found nothing meaningful. He changed the settings and updated the firmware. The camera worked for nearly 2 weeks. It has since started acting up. Currently it experiences this error every 1-2 days. Marcus disabled the motion recognition. If this does not work, he will reset the camera to factory settings and set it up again.
 
 ## Close Notes
-2025-11-13 sl Replacing the OVC camera as no solution has been found.
+2025-11-13 mw Replacing the OVC camera as no solution has been found.
 
 ## Activities
-Bowen Butler
+Owen Brooks
 Field changes•2025-10-23 07:01:02
-Assigned toSangwon Lim
+Assigned toMarcus Webb
 Impact3 - Low
-Opened byBowen Butler
+Opened byOwen Brooks
 Priority3 - Moderate
 StatusClosed Incomplete

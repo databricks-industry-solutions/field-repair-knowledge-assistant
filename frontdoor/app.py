@@ -1,4 +1,4 @@
-"""FastAPI entry point for the FIS AI Knowledge Agent front door.
+"""FastAPI entry point for the Field Repair Knowledge Assistant front door.
 
 Mirrors app/app.py (04.1): mounts the /api router, exposes /api/health, and serves
 the built React SPA (frontend/dist) with an api-prefix-guarded catch-all so deep
@@ -17,7 +17,7 @@ except ModuleNotFoundError:
     # Imported as a package (e.g. tests: `from frontdoor.app import app`).
     from frontdoor.server.routes import chat
 
-app = FastAPI(title="FIS AI Knowledge Agent")
+app = FastAPI(title="Field Repair Knowledge Assistant")
 
 app.include_router(chat.router, prefix="/api")
 

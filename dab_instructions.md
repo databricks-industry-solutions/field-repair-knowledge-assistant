@@ -4,9 +4,9 @@ The deploy is **phased**, not a single `bundle deploy`, because two native resou
 have deploy-time dependencies on outputs that only exist after a job runs:
 
 - the **Genie space** validates that its backing table (`rd_tasks_serving_analytics`)
-  exists — but that view is built by `fis_data_pipeline`;
+  exists — but that view is built by `rkb_data_pipeline`;
 - the **front-door app** binds the **MAS serving endpoint** by name — but that endpoint
-  is created by `fis_agents`.
+  is created by `rkb_agents`.
 
 So: deploy the data infra → run the pipeline → deploy Genie + the agents job → run the
 agents → deploy the app bound to the endpoint → start it. Every command below takes the
@@ -24,26 +24,26 @@ python3 src/deploy/render_genie.py --catalog <your-catalog> --schema <your-schem
 
 # 1. Deploy the data infra only (schema, volume, data job).
 databricks bundle deploy <vars> \
-  --select schemas.fis --select volumes.glossary \
-  --select jobs.fis_data_pipeline
+  --select schemas.rkb --select volumes.glossary \
+  --select jobs.rkb_data_pipeline
 
 # 2. Data: parse/load (bronze) -> build_silver -> glossary -> enrich (notebook) ->
 #    serving (notebook: plain Delta rd_tasks_serving + analytics views + verify).
-databricks bundle run fis_data_pipeline <vars>
+databricks bundle run rkb_data_pipeline <vars>
 
 # 3. Now the table exists — deploy the Genie space (native) + the agents job (which
 #    is injected with the Genie space id).
 databricks bundle deploy <vars> \
-  --select genie_spaces.fis_rnd_serving --select jobs.fis_agents
+  --select genie_spaces.rkb_serving --select jobs.rkb_agents
 
 # 4. Agents: Knowledge Assistant + Supervisor. ~25 min (KA indexes, job polls ACTIVE).
 #    NOTE the MAS serving-endpoint name it reports — you pass it in step 5.
-databricks bundle run fis_agents <vars>
+databricks bundle run rkb_agents <vars>
 
 # 5. Deploy the app + authz job bound to that endpoint, bind OBO scopes, then start.
 databricks bundle deploy <vars> --var mas_endpoint_name=<endpoint-from-step-4> \
-  --select apps.frontdoor --select jobs.fis_frontdoor_authz
-databricks bundle run fis_frontdoor_authz <vars> --var mas_endpoint_name=<endpoint-from-step-4>
+  --select apps.frontdoor --select jobs.rkb_frontdoor_authz
+databricks bundle run rkb_frontdoor_authz <vars> --var mas_endpoint_name=<endpoint-from-step-4>
 databricks bundle run frontdoor <vars>
 ```
 

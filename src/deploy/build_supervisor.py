@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FIS AI Knowledge Agent — Phase 5 Plan 01: build the Multi-Agent Supervisor (MAS).
+Field Repair Knowledge Assistant — Phase 5 Plan 01: build the Multi-Agent Supervisor (MAS).
 
 Stands up ONE Agent Bricks Multi-Agent Supervisor over the THREE already-live,
 Phase-4.1-enriched tools and proves the whole pipe end-to-end:
@@ -18,7 +18,7 @@ Phase-4.1-enriched tools and proves the whole pipe end-to-end:
 What this script does (idempotent, host-gated — mirrors build_ka.py):
 
   Task 1 — create/update the 3-tool MAS:
-    * Step 0: preflight.assert_target_host — refuse any workspace but l26d62.
+    * Step 0: preflight.assert_target_host — refuse any workspace but the reference workspace.
     * find-by-display_name (GET /api/2.1/supervisor-agents) → update else create.
     * Author the create-request from src/deploy/supervisor_config.json (human-editable
       display_name + 3 tool descriptions + routing/synthesis instructions +
@@ -108,7 +108,7 @@ def run_cli(args, profile, timeout=180):
 
 # --- deployment target: catalog/schema/warehouse (see preflight/env.py) ---
 # Centralised so a DAB target can retarget this without editing 14 files.
-# Defaults to the historical l26d62 values, so local runs are unchanged.
+# Defaults to the historical default values, so local runs are unchanged.
 import env as _env  # noqa: E402  (preflight/ already on sys.path above)
 
 WAREHOUSE_ID = _env.WAREHOUSE_ID
@@ -126,7 +126,7 @@ KA_ENDPOINT = "ka-97df484b-endpoint"
 KA_ID = ""  # KA knowledge_assistant_id, discovered in main() from the KA display name
 # The Genie space is DAB-deployed (resources/genie.yml). Its id is generated at
 # deploy time, so it is resolved at runtime BY TITLE rather than hardcoded.
-GENIE_SPACE_TITLE = "FIS R&D Tickets (serving)"
+GENIE_SPACE_TITLE = "Field Repair Tickets (serving)"
 GENIE_SPACE_ID = ""  # filled in main() from the DAB-deployed space (by title)
 GLOSSARY_FN = f"{CATALOG}.{SCHEMA}.glossary_lookup"
 ANALYTICS_VIEW = f"{CATALOG}.{SCHEMA}.rd_tasks_gold_analytics"
@@ -832,7 +832,7 @@ def _apply_target(args):
     return cat, sch, fq, wh
 
 def main():
-    ap = argparse.ArgumentParser(description="Build the FIS R&D Multi-Agent Supervisor.")
+    ap = argparse.ArgumentParser(description="Build the Field Repair Multi-Agent Supervisor.")
     # Accept --catalog/--schema/--warehouse-id so a DAB job task can retarget
     # this script. Serverless job environments cannot set env vars, so flags
     # are the only retargeting channel available to the bundle.
@@ -841,7 +841,7 @@ def main():
     ap.add_argument("--genie-space-id", default="",
                     help="Genie space id to route to, injected from the DAB "
                          "genie_spaces resource (${resources.genie_spaces."
-                         "fis_rnd_serving.id}). Robust to name-prefixing and to "
+                         "rkb_serving.id}). Robust to name-prefixing and to "
                          "duplicate titles across targets. If empty, fall back to "
                          "resolving the space BY TITLE.")
     ap.add_argument("--agent-suffix", default="",
@@ -869,7 +869,7 @@ def main():
     # Discover the KA serving endpoint from its (possibly suffixed) display name, so
     # the MAS routes to the KA it is paired with — never a hardcoded tile/endpoint.
     global KA_ENDPOINT, KA_ID
-    ka_display = "fis-rnd-knowledge-assistant-serving" + (args.agent_suffix or "")
+    ka_display = "rkb-knowledge-assistant-serving" + (args.agent_suffix or "")
     KA_ID, KA_ENDPOINT = resolve_ka(args.profile, ka_display)
     if not KA_ID or not KA_ENDPOINT:
         print(f"FATAL: Knowledge Assistant '{ka_display}' not found — run the "

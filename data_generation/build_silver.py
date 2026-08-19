@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FIS AI Knowledge Agent — silver layer, built in the data-generation step.
+Knowledge Agent — silver layer, built in the data-generation step.
 
 Output: `rd_tasks_silver` (+ the per-note-entry table `rd_task_note_entries`),
 derived from the bronze `rnd_tickets` corpus — which already contains BOTH the
@@ -47,7 +47,7 @@ NOTE_ENTRIES = f"{FQ}.rd_task_note_entries"
 DEFAULT_PROFILE = "serverless-stable"
 
 # Location grammar (verified live): "STATE Site Highway Direction",
-# e.g. "NM Texico US-60/US-70/US-84 WB", "TX Loving County 302WB". Doubled
+# e.g. "NM Sandia US-60/US-70/US-84 WB", "TX Rio Seco 302WB". Doubled
 # backslashes collapse to the single backslash the SQL/Java regex needs once the
 # statement is serialized to JSON for the SQL Statements API.
 STATE_RE = r"^([A-Z]{2})\\b"
@@ -210,7 +210,7 @@ def _apply_target(args):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Build the FIS R&D silver layer (content_hash gate).")
+    ap = argparse.ArgumentParser(description="Build the R&D silver layer (content_hash gate).")
     _env.add_target_args(ap)
     ap.add_argument("--profile", default=DEFAULT_PROFILE)
     ap.add_argument("--verify", action="store_true",

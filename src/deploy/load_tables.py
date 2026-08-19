@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FIS AI Knowledge Agent — Phase 2 Delta loader.
+Field Repair Knowledge Assistant — Phase 2 Delta loader.
 
 Creates the two canonical Delta tables in the demo schema and loads the 23
 parsed real R&D tickets + their actor-events into them via the serverless SQL
@@ -9,7 +9,7 @@ path proven in Phase 1 (`preflight.run_sql` + host-assertion gate).
 Design (per CONTEXT D-02/D-03/D-05/D-06/D-09 + RESEARCH §Canonical Table Shape,
 §KA Delta-Source Validity, §Writing to Delta on Serverless, §Pitfall F):
   - Step 0 host-assertion gate (T-02-03): `assert_target_host` refuses to write
-    to any workspace but fevm-serverless-stable-l26d62.
+    to any workspace but the reference workspace.
   - Imports `parse_all()` from parse_tickets (the deterministic parser) — the
     loader never re-parses, it only types + escapes + writes.
   - CREATE OR REPLACE TABLE with `delta.enableChangeDataFeed = true` set AT

@@ -1,15 +1,15 @@
 """Single source of truth for the deployment target (catalog / schema / warehouse).
 
 Every build script used to hardcode:
-    CATALOG      = "serverless_stable_l26d62_catalog"
-    SCHEMA       = "fis_knowledge_agent"
+    CATALOG      = "main"
+    SCHEMA       = "rkb_knowledge_agent"
     WAREHOUSE_ID = "04a4dee7888b9e64"
 across 17 files, which made the code un-targetable: a bundle could not point a
 dev and a prod target at different catalogs, and a second workspace could not run
 it at all.
 
 Resolution order (first wins):
-  1. environment variable  — FIS_CATALOG / FIS_SCHEMA / FIS_WAREHOUSE_ID
+  1. environment variable  — RKB_CATALOG / RKB_SCHEMA / RKB_WAREHOUSE_ID
   2. the historical default — so every existing local invocation keeps working
      unchanged, with no flag and no env var.
 
@@ -29,16 +29,16 @@ import os
 # --- defaults ---------------------------------------------------------------
 # Neutral, so this template does not silently write into someone else's catalog.
 # There is NO default warehouse: a wrong warehouse id fails confusingly, so it must
-# be supplied explicitly via FIS_WAREHOUSE_ID or --warehouse-id.
+# be supplied explicitly via RKB_WAREHOUSE_ID or --warehouse-id.
 DEFAULT_CATALOG = "main"
 DEFAULT_SCHEMA = "troubleshooting_knowledge_agent"
-DEFAULT_WAREHOUSE_ID = ""  # REQUIRED: set FIS_WAREHOUSE_ID or pass --warehouse-id
+DEFAULT_WAREHOUSE_ID = ""  # REQUIRED: set RKB_WAREHOUSE_ID or pass --warehouse-id
 DEFAULT_PROFILE = "DEFAULT"
 
-CATALOG = os.environ.get("FIS_CATALOG") or DEFAULT_CATALOG
-SCHEMA = os.environ.get("FIS_SCHEMA") or DEFAULT_SCHEMA
-WAREHOUSE_ID = os.environ.get("FIS_WAREHOUSE_ID") or DEFAULT_WAREHOUSE_ID
-PROFILE = os.environ.get("FIS_PROFILE") or DEFAULT_PROFILE
+CATALOG = os.environ.get("RKB_CATALOG") or DEFAULT_CATALOG
+SCHEMA = os.environ.get("RKB_SCHEMA") or DEFAULT_SCHEMA
+WAREHOUSE_ID = os.environ.get("RKB_WAREHOUSE_ID") or DEFAULT_WAREHOUSE_ID
+PROFILE = os.environ.get("RKB_PROFILE") or DEFAULT_PROFILE
 
 FQ = f"{CATALOG}.{SCHEMA}"
 
@@ -75,11 +75,11 @@ def apply_target_args(args):
 def describe():
     """One-line summary of the resolved target, for build-script banners."""
     src = []
-    if os.environ.get("FIS_CATALOG"):
+    if os.environ.get("RKB_CATALOG"):
         src.append("catalog=env")
-    if os.environ.get("FIS_SCHEMA"):
+    if os.environ.get("RKB_SCHEMA"):
         src.append("schema=env")
-    if os.environ.get("FIS_WAREHOUSE_ID"):
+    if os.environ.get("RKB_WAREHOUSE_ID"):
         src.append("warehouse=env")
     origin = f" ({', '.join(src)})" if src else " (defaults)"
     return f"target: {FQ} on warehouse {WAREHOUSE_ID}{origin}"

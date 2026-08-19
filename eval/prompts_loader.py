@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""FIS AI Knowledge Agent — Phase 7 Plan 02: Prompts.md loader (answer key).
+"""Field Repair Knowledge Assistant — Phase 7 Plan 02: Prompts.md loader (answer key).
 
 `Prompts.md` is the client's PRIVATE acceptance bar — the 5 archetype questions
 plus their expected-answer bullets. It is deliberately NOT tracked in the repo
 (it references real-sample ticket numbers / people held OUT of the synthetic
-corpus). This module reads it via `FIS_PROMPTS_PATH` (mirroring
+corpus). This module reads it via `RKB_PROMPTS_PATH` (mirroring
 `synth/leakage_gate.py`) INTO MEMORY ONLY.
 
 HARD confidentiality rule (T-07-01 / T-07-02): this loader must NEVER write any
@@ -22,12 +22,12 @@ Prompts.md structure (mirrors leakage_gate's convention):
 import os
 from pathlib import Path
 
-# Same env override + default path as synth/leakage_gate.py — the single private
-# answer-key source. Read-only, in-memory only. NEVER committed to the repo.
+# The single private answer-key source. Read-only, in-memory only. NEVER committed
+# (data/servicenow/Prompts.md is gitignored). Override the location with RKB_PROMPTS_PATH.
 PROMPTS_PATH = Path(
     os.environ.get(
-        "FIS_PROMPTS_PATH",
-        "/Users/dong.qiaoyang/Downloads/SeviceNow AI/Prompts.md",
+        "RKB_PROMPTS_PATH",
+        str(Path(__file__).resolve().parents[1] / "data" / "servicenow" / "Prompts.md"),
     )
 )
 
@@ -51,7 +51,7 @@ def load_archetypes(prompts_path=PROMPTS_PATH):
     Returns a list of `{id, title, questions: [...], answer_bullets: [...]}` in
     header order. IN-MEMORY ONLY — this function writes nothing to disk.
 
-    Raises FileNotFoundError (naming FIS_PROMPTS_PATH) when the answer key is
+    Raises FileNotFoundError (naming RKB_PROMPTS_PATH) when the answer key is
     absent — there is deliberately NO fabricated fallback (a fabricated fallback
     would silently degrade the eval's ground truth).
     """
@@ -59,7 +59,7 @@ def load_archetypes(prompts_path=PROMPTS_PATH):
     if not prompts_path.exists():
         raise FileNotFoundError(
             f"Prompts.md answer key not found at {prompts_path}. Set "
-            "FIS_PROMPTS_PATH to the private answer-key file (it is intentionally "
+            "RKB_PROMPTS_PATH to the private answer-key file (it is intentionally "
             "not tracked in the repo). No fabricated fallback is used."
         )
 
