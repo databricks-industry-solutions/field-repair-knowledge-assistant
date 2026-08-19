@@ -53,14 +53,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # --- Reuse the Phase-1 host-safety gate + SQL helper ------------------------
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "preflight"))
+# preflight.py + env.py live in THIS dir (src/deploy); put it on the path so the
+# harness resolves them run from the repo root or elsewhere.
+_HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
+REPO_ROOT = _HERE.parent
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
 from preflight import assert_target_host, run_sql, resolve_principal  # noqa: E402
 
-# --- deployment target: catalog/schema/warehouse (see preflight/env.py) ---
-# Centralised so a DAB target can retarget this without editing 14 files.
-# Defaults to the historical l26d62 values, so local runs are unchanged.
-import env as _env  # noqa: E402  (preflight/ already on sys.path above)
+# --- deployment target: catalog/schema/warehouse (see env.py) ---
+import env as _env  # noqa: E402
 
 WAREHOUSE_ID = _env.WAREHOUSE_ID
 CATALOG = _env.CATALOG
@@ -68,11 +70,16 @@ SCHEMA = _env.SCHEMA
 GLOSSARY_FN = f"{CATALOG}.{SCHEMA}.glossary_lookup"
 ANALYTICS_VIEW = f"{CATALOG}.{SCHEMA}.rd_tasks_gold_analytics"
 
-# The live tool identifiers (05-SUPERVISOR-BUILD.md). Substring-matched in the
-# dunder-qualified tool-call names the MAS returns (NEVER exact equality).
+# Tool-call classification (_classify_tool) matches on the STABLE tool-id substrings
+# the MAS returns — "glossary_lookup", "knowledge" (tool_id knowledge_assistant),
+# "genie" (tool_id ticket_analytics_genie). These demo id fragments are only extra
+# backup matchers and need not track a dev deploy. The KA + MAS endpoints ARE
+# discovered by display name at runtime (never hardcoded); base names below.
 KA_TILE_FRAG = "97df484b"
 GENIE_SPACE_FRAG = "01f185f0ce8e15cd9a92d86b3171c52e"
-KA_ENDPOINT = "ka-97df484b-endpoint"
+KA_DISPLAY_BASE = "fis-rnd-knowledge-assistant-serving"
+MAS_DISPLAY_BASE = "fis-rnd-supervisor"
+KA_ENDPOINT = ""  # discovered in main() from the (suffixed) KA display name
 
 BUILD_DOC = (
     REPO_ROOT
@@ -143,10 +150,51 @@ def resolve_host_token(profile):
     return host.rstrip("/"), token
 
 
+def _api_get_json(path, profile):
+    code, out, _ = run_cli(["api", "get", path], profile)
+    if code != 0:
+        return None
+    try:
+        return json.loads(out)
+    except json.JSONDecodeError:
+        return None
+
+
+def resolve_ka_endpoint(profile, display_name):
+    """Serving endpoint_name of the KA with this display name (else None)."""
+    d = _api_get_json("/api/2.1/knowledge-assistants", profile)
+    if not isinstance(d, dict):
+        return None
+    for ka in d.get("knowledge_assistants", []) or []:
+        if (ka.get("display_name") or "") == display_name:
+            return ka.get("endpoint_name")
+    return None
+
+
+def resolve_mas_endpoint(profile, display_name):
+    """Serving endpoint_name of the MAS with this display name (else None).
+
+    Discovered by the STABLE display name — the endpoint id changes with every
+    supervisor rebuild and per deploy suffix, so it is never hardcoded.
+    """
+    d = _api_get_json("/api/2.1/supervisor-agents", profile)
+    agents = []
+    if isinstance(d, dict):
+        for key in ("supervisor_agents", "agents", "items"):
+            if isinstance(d.get(key), list):
+                agents = d[key]
+                break
+    elif isinstance(d, list):
+        agents = d
+    for m in agents:
+        if isinstance(m, dict) and m.get("display_name") == display_name:
+            return m.get("endpoint_name")
+    return None
+
+
 def read_mas_endpoint():
-    """Parse the MAS serving-endpoint name from 05-SUPERVISOR-BUILD.md (single
-    source of truth — do NOT hardcode; the endpoint name is discovered at build
-    time)."""
+    """Parse the MAS serving-endpoint name from 05-SUPERVISOR-BUILD.md (last-resort
+    fallback; prefer resolve_mas_endpoint by display name)."""
     if not BUILD_DOC.exists():
         return None
     txt = BUILD_DOC.read_text()
@@ -747,10 +795,20 @@ def print_table(verdicts):
 
 def main():
     ap = argparse.ArgumentParser(description="MAS routing/fan-out assertion harness")
+    _env.add_target_args(ap)  # --catalog / --schema / --warehouse-id
     ap.add_argument("--profile", default="serverless-stable")
+    ap.add_argument("--agent-suffix", default="",
+                    help="Suffix on the KA + MAS display names to discover (dev "
+                         "isolation, e.g. '-dev'). Empty = the shared demo identity.")
     ap.add_argument("--only", default="",
                     help="comma-separated SUP ids, e.g. SUP-02,SUP-03")
     args = ap.parse_args()
+
+    # Rebind the deployment target (and the glossary/analytics FQNs) from the flags.
+    global CATALOG, SCHEMA, WAREHOUSE_ID, GLOSSARY_FN, ANALYTICS_VIEW, KA_ENDPOINT
+    CATALOG, SCHEMA, _fq, WAREHOUSE_ID = _env.apply_target_args(args)
+    GLOSSARY_FN = f"{CATALOG}.{SCHEMA}.glossary_lookup"
+    ANALYTICS_VIEW = f"{CATALOG}.{SCHEMA}.rd_tasks_gold_analytics"
 
     only = {s.strip().upper() for s in args.only.split(",") if s.strip()}
 
@@ -760,10 +818,23 @@ def main():
     print(f"Host gate OK: {host}")
     print(f"Demo principal: {principal}")
 
-    endpoint = read_mas_endpoint()
-    if not endpoint:
-        print(f"FATAL: could not read MAS endpoint from {BUILD_DOC}", file=sys.stderr)
+    # Discover the (suffixed) KA endpoint for the grant gate.
+    ka_display = KA_DISPLAY_BASE + (args.agent_suffix or "")
+    KA_ENDPOINT = resolve_ka_endpoint(args.profile, ka_display)
+    if not KA_ENDPOINT:
+        print(f"FATAL: KA '{ka_display}' not found (same --agent-suffix as the "
+              "build).", file=sys.stderr)
         sys.exit(2)
+    print(f"KA endpoint (discovered from '{ka_display}'): {KA_ENDPOINT}")
+
+    # Discover the (suffixed) MAS endpoint by display name; fall back to the doc.
+    mas_display = MAS_DISPLAY_BASE + (args.agent_suffix or "")
+    endpoint = resolve_mas_endpoint(args.profile, mas_display) or read_mas_endpoint()
+    if not endpoint:
+        print(f"FATAL: MAS '{mas_display}' not found and no endpoint in {BUILD_DOC}.",
+              file=sys.stderr)
+        sys.exit(2)
+    print(f"MAS endpoint (discovered from '{mas_display}'): {endpoint}")
     ready, state, task = endpoint_ready(args.profile, endpoint)
     if not ready:
         print(f"FATAL: MAS endpoint {endpoint} not READY (state={state}). "

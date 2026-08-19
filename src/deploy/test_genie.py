@@ -45,18 +45,24 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # --- Reuse the Phase 1 host-safety gate + CLI/SQL runners -------------------
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "preflight"))
+# preflight.py + env.py live in THIS dir (src/deploy); put it on the path so the
+# harness resolves them run from the repo root or elsewhere, on serverless or locally.
+_HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
 from preflight import assert_target_host, run_cli, run_sql  # noqa: E402
 
-# --- deployment target: catalog/schema/warehouse (see preflight/env.py) ---
-# Centralised so a DAB target can retarget this without editing 14 files.
-# Defaults to the historical l26d62 values, so local runs are unchanged.
-import env as _env  # noqa: E402  (preflight/ already on sys.path above)
+# --- deployment target: catalog/schema/warehouse (see env.py) ---
+import env as _env  # noqa: E402
 
 WAREHOUSE_ID = _env.WAREHOUSE_ID
 CATALOG = _env.CATALOG
 SCHEMA = _env.SCHEMA
 
+# The Genie space is DAB-deployed; its id is generated at deploy time, so it is
+# supplied via --space-id (robust to prefixing) or resolved BY TITLE at runtime,
+# never hardcoded. The build-doc parse is a last-resort fallback for a local demo run.
+GENIE_SPACE_TITLE = "FIS R&D Tickets (serving)"
 BUILD_DOC = Path(
     ".planning/phases/04-knowledge-assistant-genie-space/04-GENIE-BUILD.md"
 )
@@ -92,8 +98,19 @@ def verdict(criterion, status, evidence, sql=""):
 
 # --- Read the live space_id (produced by plan 04-03) ------------------------
 
+def resolve_space_id_by_title(profile, title):
+    """space_id of the DAB-deployed Genie space with this exact title, else None."""
+    d = _api_get("/api/2.0/genie/spaces", profile)
+    if not isinstance(d, dict):
+        return None
+    for s in d.get("spaces", []) or []:
+        if (s.get("title") or "") == title:
+            return s.get("space_id")
+    return None
+
+
 def read_space_id():
-    """Parse the space_id out of 04-GENIE-BUILD.md (single source of truth)."""
+    """Parse the space_id out of 04-GENIE-BUILD.md (last-resort fallback)."""
     if not BUILD_DOC.exists():
         return None
     m = re.search(r"space_id:\*\*\s*`([0-9a-f]{32})`", BUILD_DOC.read_text())
@@ -504,10 +521,19 @@ def print_table(verdicts, host, space_id):
 
 def main():
     ap = argparse.ArgumentParser()
+    _env.add_target_args(ap)  # --catalog / --schema / --warehouse-id
     ap.add_argument("--profile", default="serverless-stable")
+    ap.add_argument("--space-id", default="",
+                    help="Genie space id to drive (DAB-deployed). If empty, resolve "
+                         f"BY TITLE ('{GENIE_SPACE_TITLE}'), then fall back to the "
+                         "build-doc.")
     ap.add_argument("--only", default="",
                     help="comma-separated GEN ids to run (e.g. GEN-01,GEN-02,GEN-05)")
     args = ap.parse_args()
+
+    # Rebind the deployment target (analytics-view ground-truth queries use it).
+    global CATALOG, SCHEMA, WAREHOUSE_ID
+    CATALOG, SCHEMA, _fq, WAREHOUSE_ID = _env.apply_target_args(args)
 
     only = {s.strip().upper() for s in args.only.split(",") if s.strip()}
 
@@ -515,12 +541,19 @@ def main():
         return not only or gid in only
 
     host = assert_target_host(args.profile)
-    space_id = read_space_id()
+    space_id = (args.space_id
+                or resolve_space_id_by_title(args.profile, GENIE_SPACE_TITLE)
+                or read_space_id())
     if not space_id:
-        print(f"FATAL: could not read space_id from {BUILD_DOC}", file=sys.stderr)
+        print(f"FATAL: no Genie space (--space-id empty, none titled "
+              f"'{GENIE_SPACE_TITLE}', and no build-doc at {BUILD_DOC})",
+              file=sys.stderr)
         sys.exit(2)
+    _src = ("id flag" if args.space_id else
+            (f"by title '{GENIE_SPACE_TITLE}'" if resolve_space_id_by_title(
+                args.profile, GENIE_SPACE_TITLE) else "build-doc"))
     print(f"Host gate OK: {host}")
-    print(f"Genie space_id: {space_id}")
+    print(f"Genie space_id ({_src}): {space_id}")
 
     verdicts = []
     archetype_sql = []  # (name, generated_sql) for the GEN-05 inspection artifact

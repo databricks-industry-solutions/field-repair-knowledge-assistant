@@ -45,7 +45,7 @@ The template was only ever run **locally via the CLI**, never through its own DA
 | 2b | Deploy Genie space + agents job (phased) | ✅ done (dev Genie space `01f19b2c…`) |
 | 3 | Run `fis_agents` (KA + MAS) | ✅ **PASSED** (GATE 3). Blockers #15/#16/#17 fixed. Job run `677357740766336`: both tasks SUCCESS on serverless, supervisor smoke PASS. MAS `fis-rnd-supervisor-dev` = `b5da5fdd-cdd5-4de7-85e8-d9c252b75fe8`, endpoint **`mas-b5da5fdd-endpoint`**. |
 | 4 | App (frontdoor OBO + endpoint) | ✅ **PASSED** (GATE 4). App `fis-rnd-frontdoor-dev` RUNNING, serving-endpoint → `mas-b5da5fdd-endpoint` (CAN_QUERY), scopes `[serving.serving-endpoints]`. Blocker #18 fixed. **Order: `bundle run frontdoor` (start) THEN `fis_frontdoor_authz` (bind+verify)** — authz's verify() needs the app already RUNNING. |
-| 5 | Functional tests (test_ka/genie/supervisor) | ⛔ not started |
+| 5 | Functional tests (test_ka/genie/supervisor) | ✅ **PASSED** — retargeted to `-dev`; test_ka 3/3, test_genie 10/10, test_supervisor 17/17. Blocker #19. |
 | 6 | Cleanup dev state | ⛔ pending (user approved destroying dev state when done) |
 
 ## RESUME HERE
@@ -192,6 +192,20 @@ Root causes → fixes:
     new keyword-only signatures. Also corrected the deploy order: `bundle run frontdoor`
     (deploy source + start the app) must precede `fis_frontdoor_authz` (bind scopes +
     verify RUNNING), the reverse of the earlier RESUME note.
+19. **Functional test harnesses were pinned to the shared-demo identity + the old
+    data model.** All three `test_*.py` hardcoded the demo KA endpoint/Genie space,
+    used the stale `from preflight.preflight import` / `parents[1]/"preflight"` path,
+    read demo planning-doc build records for ids, and (test_ka) resolved citations
+    against `rnd_tickets` (which has no `ka_content`). **Fix:** each now takes
+    `--catalog/--schema/--warehouse-id` (+ `--agent-suffix` where an agent is
+    discovered) via env.py, imports preflight/env from `src/deploy`, and DISCOVERS
+    its targets by display name / `--space-id` / title. test_ka resolves citations
+    against `rd_tasks_serving.ka_content` and ties the CA answer to the AUTHORITATIVE
+    glossary (dev defines CA as a control/operator *software* layer, not "Controller
+    Application"); its KA-04 anti-leakage gate now accepts glossary-content agreement
+    as corroboration, since acronym-expansion embeds the glossary meaning into each
+    ticket's ka_content (the old "must not cite only the named ticket" gate assumed a
+    pre-expansion corpus). All green on `-dev`: 3/3, 10/10, 17/17.
 
 ### Objective 2 (docs) — DONE earlier in the session
 Fixed dangling refs to deleted modules, ghost `agents/` paths, architecture diagram + tree,
