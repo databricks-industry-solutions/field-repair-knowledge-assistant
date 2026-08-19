@@ -12,6 +12,12 @@ frontend/tsconfig.tsbuildinfo
 # Databricks bundle state
 .databricks/
 
+# Generated build/verify reports written by the deploy + test scripts at runtime.
+# These carry workspace-specific coordinates (catalog/schema/endpoint ids), so they
+# are validation artifacts, not template content.
+.planning/
+src/.planning/
+
 # Rendered Genie space payload — build artifact from genie/genie_space.template.json
 # (produced by src/deploy/render_genie.py; the template is the tracked source of truth).
 genie/genie_space.json
