@@ -195,7 +195,11 @@ def create_update(profile, app, dry_run):
     })
     print(f"  apps.update {APP_NAME}: {len(resources)} resource(s) + "
           f"user_api_scopes=[{SERVING_SCOPE}]")
-    _pf.workspace_client(profile).apps.update(APP_NAME, merged)
+    # Pass name/app as keywords: newer databricks-sdk makes `app` keyword-only
+    # (update(self, name, *, app)), so the positional call raised "takes 2
+    # positional arguments but 3 were given" on the job's SDK. Keywords work on
+    # both the positional (older) and keyword-only (newer) signatures.
+    _pf.workspace_client(profile).apps.update(name=APP_NAME, app=merged)
 
 
 def deploy(profile, source_path):

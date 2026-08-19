@@ -44,7 +44,8 @@ the `content_hash` LEFT ANTI JOIN + `MERGE` (not SDP streaming). Approved plan:
 | 8b | Fix the 2 verify assertions + re-run (run `97875158199499`) | ✅ `serving_agents` SUCCESS; `supervisor` FAILED → root-caused 2 more blockers (#16, #17) |
 | 8c | Fix supervisor blockers #16 (FQN retarget) + #17 (tools sub-resource API) | ✅ **DONE** — full local build via the script passed end-to-end (3 tools bound, ONLINE, grants asserted, **smoke PASS**) |
 | 9 | GATE 3: re-deploy + re-run `fis_agents` in-job | ✅ **PASSED** (run `677357740766336`, both tasks SUCCESS, supervisor smoke PASS on serverless). MAS = `fis-rnd-supervisor-dev` id `b5da5fdd-cdd5-4de7-85e8-d9c252b75fe8`, endpoint **`mas-b5da5fdd-endpoint`**. |
-| 10 | Stage 4 (front-door app) → Stage 5 (functional tests) → cleanup | ⛔ pending — use `mas_endpoint_name=mas-b5da5fdd-endpoint` for Stage 4 |
+| 10 | Stage 4 — front-door app (GATE 4) | ✅ **PASSED** — app `fis-rnd-frontdoor-dev` RUNNING, serving-endpoint → `mas-b5da5fdd-endpoint` (CAN_QUERY), `user_api_scopes=[serving.serving-endpoints]`. Fixed blocker #18 (SDK `apps.update` keyword-only `app` arg). Order: `bundle run frontdoor` (start) THEN `fis_frontdoor_authz` (bind+verify) — the handoff's order was reversed. |
+| 11 | Stage 5 (functional tests) → cleanup | ⛔ pending — tests likely need `-dev` endpoint retargeting |
 
 ## ✅ Blockers #16 + #17 fixed — the supervisor binds its tools and answers live
 

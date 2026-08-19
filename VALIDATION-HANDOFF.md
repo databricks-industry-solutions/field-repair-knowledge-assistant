@@ -44,7 +44,7 @@ The template was only ever run **locally via the CLI**, never through its own DA
 | 2 | Run `fis_data_pipeline`; **GATE 2** serving-table verify | ✅ **PASSED** (23 tickets, CDF, metadata, ka_content, acronym expansion, analytics view) |
 | 2b | Deploy Genie space + agents job (phased) | ✅ done (dev Genie space `01f19b2c…`) |
 | 3 | Run `fis_agents` (KA + MAS) | ✅ **PASSED** (GATE 3). Blockers #15/#16/#17 fixed. Job run `677357740766336`: both tasks SUCCESS on serverless, supervisor smoke PASS. MAS `fis-rnd-supervisor-dev` = `b5da5fdd-cdd5-4de7-85e8-d9c252b75fe8`, endpoint **`mas-b5da5fdd-endpoint`**. |
-| 4 | App (frontdoor OBO + endpoint) | ⛔ not started (frontdoor_deploy rewritten, ready) |
+| 4 | App (frontdoor OBO + endpoint) | ✅ **PASSED** (GATE 4). App `fis-rnd-frontdoor-dev` RUNNING, serving-endpoint → `mas-b5da5fdd-endpoint` (CAN_QUERY), scopes `[serving.serving-endpoints]`. Blocker #18 fixed. **Order: `bundle run frontdoor` (start) THEN `fis_frontdoor_authz` (bind+verify)** — authz's verify() needs the app already RUNNING. |
 | 5 | Functional tests (test_ka/genie/supervisor) | ⛔ not started |
 | 6 | Cleanup dev state | ⛔ pending (user approved destroying dev state when done) |
 
@@ -184,6 +184,14 @@ Root causes → fixes:
     returns id + endpoint). Wire shapes confirmed live via the `databricks
     supervisor-agents` CLI + `--debug` (tool_id is a query param). `--recreate` deletes +
     re-attaches to change a binding. Full local build now passes end-to-end (smoke PASS).
+18. **`AppsAPI.update()` signature drift broke the OBO-scope bind.** `frontdoor_deploy.py`
+    called `w.apps.update(APP_NAME, merged)` positionally; the job's (newer) databricks-sdk
+    makes `app` keyword-only (`update(self, name, *, app)`), raising "takes 2 positional
+    arguments but 3 were given". **Fix:** call with keywords —
+    `w.apps.update(name=APP_NAME, app=merged)` — which works on both the old positional and
+    new keyword-only signatures. Also corrected the deploy order: `bundle run frontdoor`
+    (deploy source + start the app) must precede `fis_frontdoor_authz` (bind scopes +
+    verify RUNNING), the reverse of the earlier RESUME note.
 
 ### Objective 2 (docs) — DONE earlier in the session
 Fixed dangling refs to deleted modules, ghost `agents/` paths, architecture diagram + tree,
