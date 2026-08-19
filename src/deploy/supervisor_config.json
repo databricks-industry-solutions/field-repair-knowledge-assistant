@@ -9,7 +9,7 @@
     },
     {
       "name": "ticket_analytics_genie",
-      "genie_space_id": "01f185f0ce8e15cd9a92d86b3171c52e",
+      "genie_space_id": "",
       "description": "Curated R&D task analytics over one enriched row per task: counts, durations, expert-finding (by assigned_to), open-task priority ranking (by age/priority/status/note-activity), and site/system aggregation. Use for 'how many', 'who handles/resolves the most', 'which take longest', and open-task priority sorts. A domain term is filtered as a structured system value ONLY when its category is 'system'; any other category is matched in the free-text columns (never as a false system-array membership)."
     },
     {

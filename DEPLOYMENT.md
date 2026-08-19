@@ -34,6 +34,13 @@ databricks warehouses get <WAREHOUSE_ID> --profile <PROFILE> | grep -E '"name"|"
 
 **GATE 0** — all four succeed, and `enable_serverless_compute` is `true`.
 
+> **Auth model.** The build scripts authenticate via the Databricks SDK
+> (`databricks-sdk`, added to the jobs' `environments.dependencies`): **ambient**
+> credentials when they run as serverless job tasks, and the **`--profile`** you pass
+> when you run them locally (e.g. the `--verify` commands below). The CLI profile is a
+> *local* convenience only — serverless job compute has no usable named profile, so
+> nothing here shells out to `databricks --profile` for workspace calls.
+
 > **Auth expiry is a real failure mode.** A previous unattended run had its OAuth
 > refresh token expire ~137s into a 25-minute KA poll. The poller reported
 > `KA=UNKNOWN sources={}` for 8 minutes, which looked like a broken KA but was
@@ -43,9 +50,25 @@ databricks warehouses get <WAREHOUSE_ID> --profile <PROFILE> | grep -E '"name"|"
 
 ---
 
-## Stage 1 — Deploy the bundle (creates nothing expensive)
+## Stage 1 — Deploy the data infra (phased deploy, part 1 of 3)
+
+> **The deploy is PHASED, not one `bundle deploy`.** Two native resources have
+> deploy-time dependencies on job outputs: the **Genie space** validates that its
+> backing table (`rd_tasks_serving_analytics`) exists (built by `fis_data_pipeline`),
+> and the **app** binds the **MAS endpoint** by name (created by `fis_agents`). So the
+> order is: infra (Stage 1) → run pipeline + deploy Genie/agents (Stage 2) → run agents
+> (Stage 3) → deploy + start the app bound to the endpoint (Stage 4). A single
+> `bundle deploy` fails on a cold environment.
+>
+> **No name prefixing.** This bundle has no `mode: development`; the deploy targets
+> exactly `${var.catalog}.${var.schema}`. Isolate a personal deploy with a distinct
+> `--var schema=` (and `--var app_name=`), not an automatic prefix.
 
 ```bash
+# Render the Genie space payload for your catalog/schema (DAB does not interpolate
+# inside the genie JSON). Writes git-ignored genie/genie_space.json from the template.
+python3 src/deploy/render_genie.py --catalog <CATALOG> --schema <SCHEMA>
+
 databricks bundle validate -t <TARGET>
 
 # Inspect the plan BEFORE mutating anything.
@@ -78,8 +101,13 @@ Also read the `delete` lines. On a re-deploy, an unexpected `delete` means the
 bundle is about to remove something you want to keep.
 
 ```bash
+# Phase 1 — deploy ONLY the data infra (--select). Genie + agents deploy in Stage 2
+# (after the table exists); the app deploys in Stage 4 (after the endpoint exists).
 databricks bundle deploy -t <TARGET> \
-  --var catalog=<CATALOG> --var schema=<SCHEMA> --var warehouse_id=<WAREHOUSE_ID>
+  --var catalog=<CATALOG> --var schema=<SCHEMA> --var warehouse_id=<WAREHOUSE_ID> \
+  --var app_name=<APP_NAME> \
+  --select schemas.fis --select volumes.glossary \
+  --select jobs.fis_data_pipeline
 ```
 
 **GATE 1**
@@ -88,9 +116,10 @@ databricks bundle deploy -t <TARGET> \
 databricks bundle summary -t <TARGET>
 ```
 
-Expect 7 resources: `schemas.fis`, `volumes.glossary`, `genie_spaces.fis_rnd_serving`,
-`apps.frontdoor`, and jobs `fis_data_pipeline`, `fis_agents`, `fis_frontdoor_authz`.
-Anything missing → stop.
+Expect the 3 infra resources: `schemas.fis`, `volumes.glossary`, and job
+`fis_data_pipeline`. (The full bundle is 7 resources + the volume grant;
+`genie_spaces.fis_rnd_serving` + `jobs.fis_agents` arrive in Stage 2 and
+`apps.frontdoor` + `jobs.fis_frontdoor_authz` in Stage 4.) Missing infra → stop.
 
 ---
 
@@ -98,12 +127,38 @@ Anything missing → stop.
 
 ```bash
 databricks bundle run fis_data_pipeline -t <TARGET>
+
+# Phase 2 deploy — the analytics view now exists, so the Genie space validates, and the
+# agents job can resolve ${resources.genie_spaces.fis_rnd_serving.id}.
+databricks bundle deploy -t <TARGET> \
+  --var catalog=<CATALOG> --var schema=<SCHEMA> --var warehouse_id=<WAREHOUSE_ID> \
+  --var app_name=<APP_NAME> \
+  --select genie_spaces.fis_rnd_serving --select jobs.fis_agents
 ```
 
-7 tasks in order: `parse_tickets` → `load_tables` → `silver` → `glossary` →
-`enrich` → `ka_content` → `serving_table`. The `enrich` task calls an LLM per
-ticket; on a first run budget ~10 min, on a re-run it is near-instant because the
-`content_hash` anti-join finds nothing to do.
+Tasks in order: `parse_tickets` → `load_tables` → {`build_silver`, `glossary`} →
+`enrich` → `serving`. Bronze (`parse_tickets`/`load_tables`), the
+silver layer (`data_generation/build_silver.py` → `rd_tasks_silver` +
+`rd_task_note_entries`), and the SME-governed `glossary` are `spark_python_task`s;
+`glossary` mines the vocabulary from bronze `rnd_tickets` so it is available before
+enrichment. **`enrich` and `serving` are serverless `notebook_task` notebooks**
+(`src/notebooks/enrich.py`, `src/notebooks/serving.py`). `enrich` builds
+`rd_tasks_gold_enrichment` with `ai_query`, **incremental** via a `content_hash` LEFT
+ANTI JOIN + `MERGE`: it calls the LLM only on new/changed tickets, so a first run budgets
+~10 min and a re-run with no new tickets does **zero `ai_query` work** (0 `todo` rows →
+0 model calls → MERGE skipped). `serving` then builds `rd_tasks_serving` as a **plain
+Delta table** (CDF on) — silver ⋈ `rnd_tickets` ⋈ enrichment ⋈ note counts, with
+`ka_content` composed — so the KA can *stream* from it (a materialized view cannot be
+streamed), then creates the Genie analytics views (`rd_tasks_serving_analytics` and the
+compat alias `rd_tasks_gold_analytics`) and runs `verify()`. A changed ticket re-enriches
+on the next run because its `content_hash` changes (the anti-join picks it up and the
+`MERGE` updates it by `number`).
+
+Poll the run (`databricks jobs get-run`, not the CLI stream) and pull failed-task output
+with `jobs get-run-output`. The `serving` notebook's `verify()` gates data quality
+(`ka_content` non-empty, `metadata.file_path` present, enrichment populated, 1:1 grain,
+**and that `rd_tasks_serving` is a plain table, not a view/MV**); GLO-02 is enforced at
+generation because the `ai_query` enum is built from the approved glossary at run time.
 
 **GATE 2 — the serving table must satisfy BOTH engines.**
 
@@ -112,10 +167,13 @@ python3 src/deploy/build_serving_table.py --profile <PROFILE> --verify \
   --catalog <CATALOG> --schema <SCHEMA> --warehouse-id <WAREHOUSE_ID>
 ```
 
-Requires **11/11 PASS** and the line `VERIFY PASSED`. The three that block Stage 3:
+Requires the line `VERIFY PASSED`. (The `serving` notebook already runs this same
+`verify()` in-job at the end of Stage 2; this local re-run is a convenience.) The checks
+that block Stage 3:
 
 | Check | Why it blocks |
 |---|---|
+| `is a TABLE, not a view/MV` | KA sync streams from the table; streaming from an MV fails with `STREAMING_FROM_MATERIALIZED_VIEW` (CDF alone does not make an MV streamable) |
 | `metadata struct present` | KA attach fails with `missing required column '_metadata'` |
 | `CDF enabled` | KA attach fails: *"must either be a streaming table or have Change Data Feed enabled"* |
 | `ka_content present` | `file_col` needs exactly one pre-composed column |
@@ -126,13 +184,21 @@ from them at run time, and an empty glossary means an uncontrolled vocabulary:
 ```bash
 python3 src/deploy/build_glossary.py --profile <PROFILE> --verify-only \
   --catalog <CATALOG> --schema <SCHEMA> --warehouse-id <WAREHOUSE_ID>
-
-# GLO-02 coupling: enrichment's system values == the approved glossary set, both ways.
-python3 src/deploy/enrich.py --profile <PROFILE> --drift-guard \
-  --catalog <CATALOG> --schema <SCHEMA> --warehouse-id <WAREHOUSE_ID>
 ```
 
-**GATE 2b** — `--drift-guard` reports no drift in either direction.
+**GATE 2b — GLO-02 coupling.** The `enrich` notebook builds the `ai_query`
+`systems_involved`/`vendors` enums from `glossary WHERE status='approved'` at run time
+(`enrich_recipe.parse_vocab`), so the enum cannot contain a term the glossary has not
+approved — the coupling holds by construction, not by a separate check. To spot-check that
+no emitted system value is outside the approved set, run the two-way EXCEPT directly:
+
+```sql
+(SELECT DISTINCT explode(systems_involved) FROM <cat>.<schema>.rd_tasks_gold_enrichment)
+EXCEPT (SELECT term FROM <cat>.<schema>.glossary WHERE status='approved' AND category='system')
+```
+
+An empty result means no drift. (A non-empty *reverse* direction — approved terms unused
+by any ticket — is fine, not a failure.)
 
 ---
 
@@ -182,24 +248,36 @@ quality regression rather than an outage:
 ## Stage 4 — Front-door app
 
 ```bash
-# OBO scopes first — the DAB App resource cannot express user_api_scopes.
-databricks bundle run fis_frontdoor_authz -t <TARGET>
+# Phase 3 deploy — bind the app to the MAS endpoint fis_agents created in Stage 3.
+# <ENDPOINT> is the serving-endpoint name that job reported.
+databricks bundle deploy -t <TARGET> \
+  --var catalog=<CATALOG> --var schema=<SCHEMA> --var warehouse_id=<WAREHOUSE_ID> \
+  --var app_name=<APP_NAME> --var mas_endpoint_name=<ENDPOINT> \
+  --select apps.frontdoor --select jobs.fis_frontdoor_authz
+
+# OBO scopes + the serving-endpoint resource binding — the DAB App resource cannot
+# express user_api_scopes, so frontdoor_deploy.py owns it (bound to --var mas_endpoint_name).
+databricks bundle run fis_frontdoor_authz -t <TARGET> \
+  --var catalog=<CATALOG> --var schema=<SCHEMA> --var warehouse_id=<WAREHOUSE_ID> \
+  --var app_name=<APP_NAME> --var mas_endpoint_name=<ENDPOINT>
 
 # The app needs an explicit run to start.
-databricks bundle run frontdoor -t <TARGET>
+databricks bundle run frontdoor -t <TARGET> \
+  --var catalog=<CATALOG> --var schema=<SCHEMA> --var warehouse_id=<WAREHOUSE_ID> \
+  --var app_name=<APP_NAME>
 ```
 
 **GATE 4**
 
 ```bash
-databricks apps get fis-rnd-frontdoor --profile <PROFILE> | grep -E '"state"|"url"'
+databricks apps get <APP_NAME> --profile <PROFILE> | grep -E '"state"|"url"'
 ```
 
 Must be `RUNNING`. Then confirm the OBO wiring actually landed — this is the
 step DAB cannot do, so it is the step most likely to be silently missing:
 
 ```bash
-databricks apps get fis-rnd-frontdoor --profile <PROFILE> \
+databricks apps get <APP_NAME> --profile <PROFILE> \
   | grep -A3 -E 'user_api_scopes|resources'
 ```
 

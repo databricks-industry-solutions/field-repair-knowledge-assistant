@@ -1,42 +1,41 @@
 #!/usr/bin/env python3
 """
-FIS AI Knowledge Agent — Phase 4.1 Plan 01, Task 1: silver layer.
+FIS AI Knowledge Agent — silver layer, built in the data-generation step.
 
-Builds the ENR-01 incremental gate the current `rnd_tickets` table LACKS:
-a `content_hash` column keyed on `number`, plus a light location parse and a
-per-note-entry table. Ports the deterministic shape of the reference
-`/tmp/servicenow_demo/notebooks/20_silver.py` (content_hash + split_notes) into
-this repo's CLI-driven, host-gated harness (mirrors preflight.py / build_ka.py).
+Output: `rd_tasks_silver` (+ the per-note-entry table `rd_task_note_entries`),
+derived from the bronze `rnd_tickets` corpus — which already contains BOTH the
+real sample tickets and the appended synthetic tickets (load_tables
+--append-synthetic). So the silver table this produces IS the synth-inclusive
+corpus, typed and with the ENR-01 `content_hash` gate + a light location parse.
 
-Design:
-  * Step 0 host-gate: reuse `assert_target_host` from preflight.py — refuse to
-    run against any workspace but fevm-serverless-stable-l26d62 (T-4.1-01).
-  * No Spark session in this CLI harness → the whole silver build is expressed as
-    a single `CREATE OR REPLACE TABLE ... AS SELECT` issued through `run_sql`;
-    note_entries is a second statement. `content_hash` is computed IN SQL with
-    `substr(sha256(...),1,16)` (avoids the reference's PySpark UDF).
-  * `rnd_tickets` is already one row per `number` (deduped) — so NO Window dedup
-    step (unlike the reference bronze→silver).
-  * CDF enabled on silver (KA/enrichment requirement).
-  * Idempotent: CREATE OR REPLACE. `--verify` runs the acceptance assertions.
+This lives with data generation (not in the enrich/serving notebooks) on purpose:
+silver is the shaped corpus the demo data-generation flow produces, and the enrich
+notebook (rd_tasks_gold_enrichment) reads `rd_tasks_silver`. CDF is enabled so the
+table is a clean Delta source; the `content_hash` column it computes is the incremental
+gate the enrich notebook's LEFT ANTI JOIN uses (a re-run with no new tickets does zero
+LLM work; a changed ticket's content_hash changes and is re-enriched next run).
+
+No Spark session — the whole build is SQL issued through `run_sql` (host-gated via
+preflight `assert_target_host`), mirroring the other data-prep scripts.
 
 Usage:
-    python3 enrich/silver.py --profile serverless-stable
-    python3 enrich/silver.py --profile serverless-stable --verify
+    python3 data_generation/build_silver.py --profile serverless-stable
+    python3 data_generation/build_silver.py --profile serverless-stable --verify
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-# --- Reuse the Phase 1 host-safety gate + SQL runner ------------------------
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "preflight"))
+# The shared helpers (preflight/env) live in src/deploy; put it on the path so
+# this data-generation script resolves them the same way the deploy scripts do.
+# Serverless spark_python_task execs this file with no `__file__` and CWD = the
+# script's own dir; fall back to CWD so paths resolve there and locally.
+_HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
+REPO_ROOT = _HERE.parent
+sys.path.insert(0, str(REPO_ROOT / "src" / "deploy"))
 from preflight import assert_target_host, run_sql  # noqa: E402
-
-# --- deployment target: catalog/schema/warehouse (see preflight/env.py) ---
-# Centralised so a DAB target can retarget this without editing 14 files.
-# Defaults to the historical l26d62 values, so local runs are unchanged.
-import env as _env  # noqa: E402  (preflight/ already on sys.path above)
+import env as _env  # noqa: E402
 
 WAREHOUSE_ID = _env.WAREHOUSE_ID
 CATALOG = _env.CATALOG
@@ -47,24 +46,21 @@ SILVER = f"{FQ}.rd_tasks_silver"
 NOTE_ENTRIES = f"{FQ}.rd_task_note_entries"
 DEFAULT_PROFILE = "serverless-stable"
 
-# Location grammar (verified live 2026-07-27): "STATE Site Highway Direction",
-# e.g. "NM Texico US-60/US-70/US-84 WB", "TX Loving County 302WB".
-# All best-effort regex — location_site is the residue after state/highway/dir
-# are removed (per plan: light parser, Claude's discretion).
+# Location grammar (verified live): "STATE Site Highway Direction",
+# e.g. "NM Texico US-60/US-70/US-84 WB", "TX Loving County 302WB". Doubled
+# backslashes collapse to the single backslash the SQL/Java regex needs once the
+# statement is serialized to JSON for the SQL Statements API.
 STATE_RE = r"^([A-Z]{2})\\b"
 DIR_RE = r"\\b([NSEW]B)\\b"
-# highway tokens: I-40, US-60, RT-58, DE-299, Hwy-2, 302WB, US-281 ...
 HWY_RE = r"((?:I|US|RT|SR|DE|Hwy|HW|CR|FM)-?[0-9][0-9A-Za-z/.-]*|[0-9]{2,4}[NSEW]B)"
 
 
 def build_silver_sql():
     """Single CREATE OR REPLACE TABLE AS SELECT for the silver layer."""
-    # NOTE: doubled backslashes in the Python string collapse to the single
-    # backslash SQL/Java-regex needs (\b, \\ etc.) once serialized to JSON.
     return f"""
 CREATE OR REPLACE TABLE {SILVER}
 TBLPROPERTIES (delta.enableChangeDataFeed = true,
-  comment = 'Silver: rnd_tickets + content_hash (ENR-01 incremental gate) + light location parse. Key=number; self-contained for enrichment. CDF on.')
+  comment = 'Silver: rnd_tickets (real + synthetic) + content_hash (ENR-01 gate) + light location parse. Key=number; CDF on so the enrich pipeline can stream it. Built by data_generation/build_silver.py.')
 AS
 SELECT
   number,
@@ -117,14 +113,14 @@ FROM {SRC}
 def build_note_entries_sql():
     """One row per dated note-log entry (ports split_notes; key=number+entry_seq).
 
-    The `notes` field is an append-only log, one dated entry per line
-    (verified live): 'YYYY-MM-DD [#AUTHOR#|Name|- Name -] text'. Split on
-    newlines, parse the leading date + author, keep non-trivial lines.
+    The `notes` field is an append-only log, one dated entry per line (verified
+    live): 'YYYY-MM-DD [#AUTHOR#|Name|- Name -] text'. Split on newlines, parse the
+    leading date + author, keep non-trivial lines.
     """
     return f"""
 CREATE OR REPLACE TABLE {NOTE_ENTRIES}
 TBLPROPERTIES (delta.enableChangeDataFeed = true,
-  comment = 'One row per dated note-log entry per task (key=number+entry_seq). Ported from 20_silver.py split_notes.')
+  comment = 'One row per dated note-log entry per task (key=number+entry_seq). Built by data_generation/build_silver.py.')
 AS
 WITH exploded AS (
   SELECT number,
@@ -162,31 +158,27 @@ def scalar(stmt, profile):
 
 
 def verify(profile):
-    """Run the plan's acceptance assertions; exit non-zero on any failure."""
+    """Acceptance assertions; exit non-zero on any failure."""
     print("[silver] --verify: running acceptance assertions...")
     checks = []
 
     n, st = scalar(f"SELECT count(*) FROM {SILVER}", profile)
-    checks.append(("row count == 223", n is not None and int(n) == 223, f"{n} (state={st})"))
+    checks.append(("silver row count > 0", n is not None and int(n) > 0, f"{n} (state={st})"))
 
     n, st = scalar(
         f"SELECT count(*) FROM {SILVER} WHERE content_hash IS NULL OR length(content_hash)=0",
         profile)
     checks.append(("no null/empty content_hash == 0", n is not None and int(n) == 0, f"{n}"))
 
-    n, st = scalar(f"SELECT count(DISTINCT content_hash) FROM {SILVER}", profile)
-    checks.append(("distinct content_hash > 200", n is not None and int(n) > 200, f"{n}"))
+    n, st = scalar(f"SELECT count(*) - count(DISTINCT number) FROM {SILVER}", profile)
+    checks.append(("number is unique (no dupes) == 0", n is not None and int(n) == 0, f"{n}"))
 
     n, st = scalar(f"SELECT count(*) FROM {NOTE_ENTRIES}", profile)
     checks.append(("note_entries count > 0", n is not None and int(n) > 0, f"{n}"))
 
-    # CDF property present on silver.
     state, rows = run_sql(f"SHOW TBLPROPERTIES {SILVER}", profile, WAREHOUSE_ID)
-    cdf_on = False
-    if state == "SUCCEEDED" and rows:
-        for r in rows:
-            if r and r[0] == "delta.enableChangeDataFeed" and str(r[1]).lower() == "true":
-                cdf_on = True
+    cdf_on = any(r and r[0] == "delta.enableChangeDataFeed" and str(r[1]).lower() == "true"
+                 for r in (rows or []))
     checks.append(("delta.enableChangeDataFeed == true", cdf_on, str(cdf_on)))
 
     print("\n[silver] Acceptance results:")
@@ -200,50 +192,35 @@ def verify(profile):
     print("[silver] VERIFY PASSED")
 
 
-
 def _apply_target(args):
     """Rebind CATALOG/SCHEMA/FQ/WAREHOUSE_ID (and every derived name) from flags.
 
     Serverless job environments cannot set environment variables, so --catalog /
     --schema / --warehouse-id are the only way a DAB task can retarget this script.
-    Module-level table names are f-strings evaluated at import, so they are
-    recomputed here rather than just updating CATALOG.
     """
-    import re as _re
     g = globals()
     cat, sch, fq, wh = _env.apply_target_args(args)
     old_fq = g.get("FQ")
     g["CATALOG"], g["SCHEMA"], g["FQ"], g["WAREHOUSE_ID"] = cat, sch, fq, wh
-    for k in ("DEMO_CATALOG",):
-        if k in g: g[k] = cat
-    for k in ("DEMO_SCHEMA",):
-        if k in g: g[k] = sch
-    # Re-point any fully-qualified name built from the previous FQ.
     if old_fq and old_fq != fq:
         for k, v in list(g.items()):
             if isinstance(v, str) and v.startswith(old_fq + "."):
                 g[k] = fq + v[len(old_fq):]
-            elif isinstance(v, str) and v.startswith("/Volumes/" + old_fq.replace(".", "/")):
-                g[k] = v.replace("/Volumes/" + old_fq.replace(".", "/"),
-                                 "/Volumes/" + fq.replace(".", "/"))
     return cat, sch, fq, wh
+
 
 def main():
     ap = argparse.ArgumentParser(description="Build the FIS R&D silver layer (content_hash gate).")
-    # Accept --catalog/--schema/--warehouse-id so a DAB job task can retarget
-    # this script. Serverless job environments cannot set env vars, so flags
-    # are the only retargeting channel available to the bundle.
     _env.add_target_args(ap)
     ap.add_argument("--profile", default=DEFAULT_PROFILE)
     ap.add_argument("--verify", action="store_true",
-                    help="run acceptance assertions (also builds first unless --verify-only)")
+                    help="run acceptance assertions after the build")
     ap.add_argument("--verify-only", action="store_true",
                     help="skip the build; only run assertions against existing tables")
     args = ap.parse_args()
-    # Rebind module globals BEFORE any table name is used.
     _apply_target(args)
 
-    host = assert_target_host(args.profile)  # Step 0 — T-4.1-01 host gate
+    host = assert_target_host(args.profile)  # host gate
     print(f"[silver] Host gate OK: {host}")
 
     if not args.verify_only:

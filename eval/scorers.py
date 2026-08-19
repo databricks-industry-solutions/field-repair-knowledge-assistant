@@ -17,7 +17,7 @@ RETRIEVER spans (RESEARCH Pitfall 5 / Assumption A1). So groundedness is a custo
 
 Citation-resolution primitives (`tickets_in_corpus`, `_norm_ticket`, `TICKET_RE`,
 `run_sql`, `WAREHOUSE_ID`, `CATALOG`, `SCHEMA`) are REUSED verbatim from
-`agents/test_supervisor.py` — never reimplemented.
+`src/deploy/test_supervisor.py` — never reimplemented.
 
 Live corpus columns (confirmed at build time via information_schema on
 `fevm-serverless-stable-l26d62`, 2026-07-30):

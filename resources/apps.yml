@@ -13,7 +13,7 @@
 resources:
   apps:
     frontdoor:
-      name: fis-rnd-frontdoor
+      name: ${var.app_name}
       description: >-
         FIS R&D Knowledge Agent front door. Chat UI over the Multi-Agent
         Supervisor, called on behalf of the signed-in user (OBO).

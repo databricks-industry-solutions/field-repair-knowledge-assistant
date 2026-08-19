@@ -34,8 +34,8 @@ Reuses the host-assertion gate + run_cli/run_sql pattern from preflight/prefligh
 so the build refuses to run against any workspace but fevm-serverless-stable-l26d62.
 
 Usage:
-    python3 agents/build_ka.py --profile serverless-stable
-    python3 agents/build_ka.py --profile serverless-stable --skip-query   # build only
+    python3 src/deploy/build_ka.py --profile serverless-stable
+    python3 src/deploy/build_ka.py --profile serverless-stable --skip-query   # build only
 """
 
 import argparse
@@ -53,9 +53,11 @@ TARGET_HOST_FRAGMENT = "fevm-serverless-stable-l26d62"
 # --- deployment target: catalog/schema/warehouse (see preflight/env.py) ---
 # Centralised so a DAB target can retarget this without editing 14 files.
 # Defaults to the historical l26d62 values, so local runs are unchanged.
-# NOTE: this module reimplements the preflight helpers rather than importing them,
-# so preflight/ is NOT already on sys.path here — it must be added.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "preflight"))
+# Serverless spark_python_task execs this file with no `__file__` and CWD = the
+# script's own dir; fall back to CWD. env.py lives in THIS dir (this module
+# reimplements the preflight helpers, so only env needs to be importable).
+_HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
+sys.path.insert(0, str(_HERE))
 import env as _env  # noqa: E402
 
 DEMO_CATALOG = _env.CATALOG
@@ -68,9 +70,10 @@ KA_DISPLAY_NAME = "fis-rnd-knowledge-assistant"
 GLOSSARY_VOLUME = "glossary"
 CORPUS_TABLE = f"{DEMO_CATALOG}.{DEMO_SCHEMA}.rnd_tickets"
 CORPUS_CONTENT_COL = "case_text"
-# ENR-03 repoint target: the segmented, glossary-acronym-expanded content column
-# (built by enrich/build_ka_content.py on the same rnd_tickets table, so the KA
-# citation metadata struct — which carries the ticket number — is preserved).
+# ENR-03 segmented, glossary-acronym-expanded content column. NOTE: the ACTIVE KA
+# is built by build_serving_agents.py over rd_tasks_serving (which composes
+# ka_content in the serving notebook); this rnd_tickets-based path is the legacy KA and
+# build_ka is imported mainly for its shared helpers.
 CORPUS_ENRICHED_COL = "ka_content"
 CORPUS_SOURCE_NAME = "rnd_tickets_corpus"
 GLOSSARY_VOLUME_PATH = f"/Volumes/{DEMO_CATALOG}/{DEMO_SCHEMA}/{GLOSSARY_VOLUME}"
@@ -84,8 +87,8 @@ SOURCE_TYPE_FILES = "files"
 POLL_INTERVAL_S = 30
 POLL_CEILING_S = 60 * 90  # 90 min safety ceiling; report if exceeded, don't hang forever
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-LOCAL_GLOSSARY = Path(__file__).resolve().parent / "glossary.md"
+REPO_ROOT = _HERE.parent
+LOCAL_GLOSSARY = _HERE / "glossary.md"
 BUILD_DOC = (
     REPO_ROOT
     / ".planning/phases/04-knowledge-assistant-genie-space/04-KA-BUILD.md"
@@ -127,7 +130,34 @@ KA_INSTRUCTIONS = (
 # --- Reused helpers (mirror preflight/preflight.py) -------------------------
 
 def run_cli(args, profile, timeout=180):
-    """Run a databricks CLI command, return (exit_code, stdout, stderr)."""
+    """Run a databricks operation, return (exit_code, stdout, stderr).
+
+    Routes through the SDK (ambient auth) so it works on serverless job compute where
+    the CLI has no usable profile: `api` calls via ApiClient, `auth env` via the
+    resolved host, and `fs cp`/`fs ls` (Volume file ops) via the Files API. Anything
+    else falls back to the subprocess CLI (local convenience only).
+    """
+    import preflight as _pf
+    try:
+        if args and args[0] == "api":
+            method, path = args[1], args[2]
+            body = json.loads(args[args.index("--json") + 1]) if "--json" in args else None
+            return _pf.api_do(method, path, profile, body)
+        if args[:2] == ["auth", "env"]:
+            host = _pf.workspace_client(profile).config.host or ""
+            return 0, json.dumps({"env": {"DATABRICKS_HOST": host}}), ""
+        if args[:2] == ["fs", "cp"]:
+            local, remote = args[2], args[3].replace("dbfs:", "", 1)
+            with open(local, "rb") as f:
+                _pf.workspace_client(profile).files.upload(remote, f, overwrite=True)
+            return 0, "", ""
+        if args[:2] == ["fs", "ls"]:
+            remote = args[2].replace("dbfs:", "", 1)
+            names = [e.name for e in
+                     _pf.workspace_client(profile).files.list_directory_contents(remote)]
+            return 0, "\n".join(names), ""
+    except Exception as e:  # noqa: BLE001
+        return 1, "", str(e)
     cmd = ["databricks", *args, "--profile", profile]
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -588,7 +618,7 @@ def write_build_doc(host, ka_name, ka_id, ka_json, elapsed, ready,
 
 **Generated:** {ts}
 **Workspace:** `{host}`
-**Built by:** `agents/build_ka.py` (Phase 4, Plan 01)
+**Built by:** `src/deploy/build_ka.py` (Phase 4, Plan 01)
 
 This file records the live-only KA build facts that Plan 04-02 (isolation harness)
 and Phase 5 (Supervisor attach) consume: the KA identifiers, serving endpoint,
@@ -667,7 +697,7 @@ No `/api/2.0/tiles` call is made anywhere (Anti-Pattern avoided).
 ## Reproduce
 
 ```bash
-python3 agents/build_ka.py --profile serverless-stable
+python3 src/deploy/build_ka.py --profile serverless-stable
 ```
 Idempotent: reuses an existing KA/sources/Volume by name.
 """
@@ -796,6 +826,12 @@ def _apply_target(args):
         if k in g: g[k] = cat
     for k in ("DEMO_SCHEMA",):
         if k in g: g[k] = sch
+    # The glossary Volume paths derive from DEMO_CATALOG/DEMO_SCHEMA (not FQ), and
+    # build_ka has no module-level FQ, so the old_fq rewrite below won't catch them —
+    # recompute them explicitly from the rebound catalog/schema.
+    if "GLOSSARY_VOLUME" in g:
+        g["GLOSSARY_VOLUME_PATH"] = f"/Volumes/{cat}/{sch}/{g['GLOSSARY_VOLUME']}"
+        g["GLOSSARY_FILE_PATH"] = f"{g['GLOSSARY_VOLUME_PATH']}/glossary.md"
     # Re-point any fully-qualified name built from the previous FQ.
     if old_fq and old_fq != fq:
         for k, v in list(g.items()):

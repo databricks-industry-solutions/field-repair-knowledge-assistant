@@ -3,15 +3,16 @@
 FIS AI Knowledge Agent — Phase 4.1 Plan 02, Task 1: two-source glossary_proposals.
 
 Ports the reference `/tmp/servicenow_demo/notebooks/30_glossary.py` two-source
-merge into this repo's CLI-driven, host-gated harness (mirrors silver.py /
-preflight.py). No Spark session — every stage is a `CREATE OR REPLACE TABLE ...`
-issued through `run_sql` against warehouse 04a4dee7888b9e64.
+merge into this repo's CLI-driven, host-gated harness (mirrors
+data_generation/build_silver.py / preflight.py). No Spark session — every stage is a
+`CREATE OR REPLACE TABLE ...` issued through `run_sql` against the --warehouse-id
+resolved by env.py.
 
 Two corpora, merged (docs win on definition/category):
-  1. ServiceNow (rd_tasks_silver): `ai_query` extracts candidate domain terms per
+  1. ServiceNow (bronze rnd_tickets): `ai_query` extracts candidate domain terms per
      ticket, materialized once (Pitfall 5), grounding-guarded to verbatim mentions;
      then a second `ai_query` proposes definition/category/confidence per candidate.
-  2. Product docs (data/product_docs/*.md) + the 20 curated agents/glossary.md
+  2. Product docs (data/product_docs/*.md) + the 20 curated src/deploy/glossary.md
      terms — authoritative definitions/categories/aliases, pre-loaded as
      authoritative proposals (Product-docs decision option (b): the SME confirms
      rather than re-derives). Docs win on definition (confidence 0.9,
@@ -37,15 +38,19 @@ Usage:
 import argparse
 import json
 import re
-import subprocess
 import sys
 import time
 from pathlib import Path
 
 # --- Reuse the Phase 1 host-safety gate + SQL runner ------------------------
-REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "preflight"))
-from preflight import assert_target_host, run_sql, run_cli  # noqa: E402
+# Serverless spark_python_task execs this file with no `__file__` and CWD = the
+# script's own dir; fall back to CWD so paths resolve there and locally. preflight.py
+# and env.py live in THIS dir (the old REPO/"preflight" path no longer exists).
+_HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
+REPO = _HERE.parent
+sys.path.insert(0, str(_HERE))
+from preflight import assert_target_host, run_sql  # noqa: E402
+import preflight as _pf  # noqa: E402  (workspace_client for the SDK-based poller)
 
 # --- deployment target: catalog/schema/warehouse (see preflight/env.py) ---
 # Centralised so a DAB target can retarget this without editing 14 files.
@@ -56,7 +61,13 @@ WAREHOUSE_ID = _env.WAREHOUSE_ID
 CATALOG = _env.CATALOG
 SCHEMA = _env.SCHEMA
 FQ = f"{CATALOG}.{SCHEMA}"
-T_SILVER = f"{FQ}.rd_tasks_silver"
+# Glossary mining reads only the raw ticket text (title/description/notes/
+# close_notes), all of which live on the bronze `rnd_tickets` table. It reads
+# bronze — NOT `rd_tasks_silver` — so the glossary can be built and SME-approved
+# BEFORE the enrich pipeline runs (the pipeline now owns silver → serving, and its
+# gold_enrichment step depends on the approved glossary; mining from silver would
+# make that circular).
+T_SOURCE = f"{FQ}.rnd_tickets"
 T_GLOSSARY_PROP = f"{FQ}.glossary_proposals"
 T_GLOSSARY = f"{FQ}.glossary"
 DEFAULT_PROFILE = "serverless-stable"
@@ -113,7 +124,7 @@ PROP_SYS = ("You build a domain glossary for Fleetworthy roadside truck-screenin
 def sql_sn_extract():
     return f"""
 CREATE OR REPLACE TABLE {FQ}._glossary_sn_extract AS
-WITH t AS (SELECT number, title, description, notes, close_notes FROM {T_SILVER})
+WITH t AS (SELECT number, title, description, notes, close_notes FROM {T_SOURCE})
 SELECT number, coalesce(title,'') AS title,
   concat_ws(chr(10), coalesce(title,''), coalesce(description,''), coalesce(notes,''), coalesce(close_notes,'')) AS src_text,
   from_json(ai_query('{CHAT_ENDPOINT}',
@@ -178,7 +189,7 @@ FROM {FQ}._glossary_sn_candidates
 
 # --- Stage 3: authoritative doc + curated-seed terms (parsed in Python) ------
 
-# Explicit categories/aliases for the 20 curated agents/glossary.md terms. These
+# Explicit categories/aliases for the 20 curated src/deploy/glossary.md terms. These
 # are the authoritative seed (Product-docs decision option (b)): the SME confirms
 # these rather than re-deriving them. AUR/OVC are HARDWARE here and get
 # recategorized to `system` at promote time (promote_glossary.py) — the enrichment
@@ -237,11 +248,11 @@ def parse_authoritative_terms():
     """Build the authoritative doc/seed term list (dedup by upper(term))."""
     by_key = {}
 
-    # 1) curated seed (agents/glossary.md), authoritative + explicit category/aliases.
+    # 1) curated seed (src/deploy/glossary.md), authoritative + explicit category/aliases.
     for term, expansion, category, aliases, definition in SEED_TERMS:
         by_key[term.upper()] = {
             "term": term, "expansion": expansion, "definition": definition,
-            "category": category, "aliases": list(aliases), "source_doc": "agents/glossary.md",
+            "category": category, "aliases": list(aliases), "source_doc": "src/deploy/glossary.md",
         }
 
     # 2) product-docs subsystem-glossary tables (adds ATPS/SRIS/VWI/OTA/DAP/VES/...).
@@ -362,6 +373,51 @@ COMMENT 'Governed glossary — SME-approved terms only.'
 """.strip()
 
 
+def sql_glossary_function():
+    """The `glossary_lookup(term_query)` UC function the Multi-Agent Supervisor routes
+    to (Tool 3). Returns the SME-APPROVED definition + category for a term or one of
+    its aliases. Nothing else in the repo created it, so a fresh deploy needs it here.
+    """
+    return f"""
+CREATE OR REPLACE FUNCTION {T_GLOSSARY}_lookup(term_query STRING)
+RETURNS TABLE (term STRING, definition STRING, category STRING)
+COMMENT 'SME-approved definition + category for a glossary term or alias.'
+RETURN
+  SELECT term, definition, category
+  FROM {T_GLOSSARY}
+  WHERE status = 'approved'
+    AND (
+      lower(term) = lower(term_query)
+      OR exists(aliases, a -> lower(a) = lower(term_query))
+      OR lower(term) LIKE concat('%', lower(term_query), '%')
+    )
+""".strip()
+
+
+def sql_seed_authoritative():
+    """Promote the CURATED AUTHORITATIVE terms (product-docs/glossary.md seed) to
+    status='approved' in the governed glossary.
+
+    GLO-02 keeps ServiceNow-MINED proposals in glossary_proposals for SME review, but
+    the curated seed (authoritative=true) is pre-vetted — so it is auto-approved here.
+    Without at least one approved category='system' term (and one approved acronym),
+    the enrichment pipeline refuses to run (by design). Idempotent: inserts only terms
+    not already in the governed glossary, so a manual SME approval is never overwritten.
+    """
+    return f"""
+INSERT INTO {T_GLOSSARY}
+  (term, definition, aliases, category, source_refs, source_corpus, status,
+   approved_by, approved_at, version)
+SELECT p.term, p.definition,
+       coalesce(p.edited_aliases, cast(array() AS ARRAY<STRING>)),
+       p.category, p.source_refs, p.source_corpus,
+       'approved', 'auto-seed:authoritative', current_timestamp(), 1
+FROM {T_GLOSSARY_PROP} p
+WHERE p.authoritative = true AND p.category IS NOT NULL
+  AND upper(p.term) NOT IN (SELECT upper(term) FROM {T_GLOSSARY})
+""".strip()
+
+
 # --- runners ----------------------------------------------------------------
 
 def run_sql_poll(statement, profile, warehouse_id, max_wait_s=1200, poll_s=10):
@@ -372,36 +428,26 @@ def run_sql_poll(statement, profile, warehouse_id, max_wait_s=1200, poll_s=10):
     submit, and if not terminal, poll GET /statements/{id} until SUCCEEDED/FAILED.
     Returns (state, data_array).
     """
-    payload = json.dumps({
-        "warehouse_id": warehouse_id,
-        "statement": statement,
-        "wait_timeout": "30s",
-    })
-    code, out, err = run_cli(
-        ["api", "post", "/api/2.0/sql/statements", "--json", payload], profile)
-    if code != 0:
-        return "CLI_ERROR", None
+    from databricks.sdk.service.sql import StatementState  # noqa: E402
+    w = _pf.workspace_client(profile)  # ambient in-job, CLI profile locally
     try:
-        d = json.loads(out)
-    except json.JSONDecodeError:
-        return "PARSE_ERROR", None
-    state = d.get("status", {}).get("state", "UNKNOWN")
-    sid = d.get("statement_id")
-    deadline = time.time() + max_wait_s
-    while state in ("PENDING", "RUNNING") and sid and time.time() < deadline:
-        time.sleep(poll_s)
-        code, out, _ = run_cli(["api", "get", f"/api/2.0/sql/statements/{sid}"], profile)
-        if code != 0:
-            return "CLI_ERROR", None
-        try:
-            d = json.loads(out)
-        except json.JSONDecodeError:
-            return "PARSE_ERROR", None
-        state = d.get("status", {}).get("state", "UNKNOWN")
-    if state == "FAILED":
-        msg = d.get("status", {}).get("error", {}).get("message", "")
-        print(f"  statement error: {msg[:300]}", file=sys.stderr)
-    return state, d.get("result", {}).get("data_array")
+        resp = w.statement_execution.execute_statement(
+            warehouse_id=warehouse_id, statement=statement, wait_timeout="30s")
+        sid = resp.statement_id
+        deadline = time.time() + max_wait_s
+        while (sid and resp.status and resp.status.state in
+               (StatementState.PENDING, StatementState.RUNNING)
+               and time.time() < deadline):
+            time.sleep(poll_s)
+            resp = w.statement_execution.get_statement(sid)
+    except Exception as e:  # noqa: BLE001
+        print(f"  statement submit/poll error: {e}", file=sys.stderr)
+        return "CLI_ERROR", None
+    state = resp.status.state.value if resp.status and resp.status.state else "UNKNOWN"
+    if state == "FAILED" and resp.status and resp.status.error:
+        print(f"  statement error: {(resp.status.error.message or '')[:300]}",
+              file=sys.stderr)
+    return state, (resp.result.data_array if resp.result else None)
 
 
 def run_or_die(label, stmt, profile):
@@ -433,7 +479,11 @@ def build(profile):
     run_or_die(f"_glossary_docs ({n_docs} authoritative terms)", docs_stmt, profile)
     print("[glossary] Stage 4: merge (docs win) → glossary_proposals...")
     run_or_die("glossary_proposals", sql_merge(), profile)
-    run_or_die("governed glossary (empty)", sql_governed_glossary(), profile)
+    run_or_die("governed glossary (table)", sql_governed_glossary(), profile)
+    print("[glossary] Stage 5: seed authoritative curated terms as APPROVED...")
+    run_or_die("seed authoritative approved terms", sql_seed_authoritative(), profile)
+    print("[glossary] Stage 6: glossary_lookup UC function (MAS Tool 3)...")
+    run_or_die("glossary_lookup UC function", sql_glossary_function(), profile)
 
 
 def verify(profile):
@@ -488,7 +538,6 @@ def _apply_target(args):
     Module-level table names are f-strings evaluated at import, so they are
     recomputed here rather than just updating CATALOG.
     """
-    import re as _re
     g = globals()
     cat, sch, fq, wh = _env.apply_target_args(args)
     old_fq = g.get("FQ")

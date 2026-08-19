@@ -15,9 +15,14 @@
 # "knowledge_assistants", "agent" and "supervisor" appear ZERO times.
 #
 # So:
-#   native      — schema, volume, genie_space, the two apps
-#   job-wrapped — the data pipeline, and the KA + MAS builds (existing idempotent
-#                 scripts run as job tasks)
+#   native      — schema, volume, genie_space, and the app
+#   job-wrapped — the whole data pipeline runs as one job (fis_data_pipeline): bronze
+#                 ingest + silver + glossary as spark_python_task, then gold enrichment
+#                 and the serving table as serverless notebook_task notebooks
+#                 (src/notebooks/); plus the KA + MAS builds (no DAB resource type exists
+#                 for them; idempotent scripts run as job tasks). There is NO Lakeflow
+#                 pipeline — the KA streams from rd_tasks_serving, which must be a plain
+#                 Delta table (an MV cannot be streamed), so the serving notebook builds it.
 #
 # RETARGETING
 # -----------
@@ -75,15 +80,38 @@ variables:
       the fis_agents job (Agent Bricks), NOT by this bundle — never re-create it, that
       resets the per-tile authorization. Set this to the endpoint the job reports.
     default: ""  # set after the fis_agents job creates the supervisor
+  app_name:
+    description: >-
+      Front-door app name. The default is the shared demo identity; override per dev
+      deploy (`--var app_name=fis-rnd-frontdoor-dev`) so a dev deploy gets its own app
+      instead of colliding with the shared one. App names: lowercase letters, digits,
+      and hyphens only.
+    default: fis-rnd-frontdoor
+  agent_suffix:
+    description: >-
+      Suffix appended to the Knowledge Assistant + Multi-Agent Supervisor display names
+      so a dev/isolated deploy builds its OWN agents instead of reusing the shared demo
+      ones (which point at the shared schema). Empty = shared demo identity; a dev
+      deploy passes e.g. `--var agent_suffix=-dev`.
+    default: ""
 
 targets:
   # Set your workspace via the CLI profile (-p / DATABRICKS_CONFIG_PROFILE) rather
-  # than pinning a host here, so this template is portable. `mode: development`
-  # prefixes resource names with the deploying user, which keeps two engineers on
-  # the same workspace from clobbering each other.
+  # than pinning a host here, so this template is portable. Two engineers on the same
+  # workspace isolate by passing distinct --var schema= / --var app_name= (see below),
+  # NOT via automatic name prefixing (which this bundle disables — see the note).
+  # No `mode: development`: this bundle is parameterized by catalog/schema/app_name,
+  # and dev-mode's automatic "[dev <user>] " name prefix desynchronizes the managed
+  # schema NAME from the --schema the job tasks pass (they'd write to a DIFFERENT
+  # schema than the bundle creates) and from the Genie space's rendered table refs.
+  # (`presets.name_prefix: ""` does NOT disable it — the empty value is ignored.)
+  # So there is no prefix: the deploy targets exactly ${var.catalog}.${var.schema}.
+  # Isolate per engineer by passing a distinct --var schema=<your-dev-schema>
+  # (and --var app_name=... when sharing a workspace). State is per-user by default.
   dev:
     default: true
-    mode: development
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
 
   # Shared demo assets: no name prefixing, so the Genie space and app keep the
   # identities the Supervisor and front door reference.

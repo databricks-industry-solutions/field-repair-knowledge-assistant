@@ -32,8 +32,8 @@ Known limitation (Phase-3): synthetic tickets have activity_count=1, so
 involvement/delay richness leans on the real tickets + note actors — expected.
 
 Usage:
-    python3 agents/test_genie.py --profile serverless-stable
-    python3 agents/test_genie.py --profile serverless-stable --only GEN-01,GEN-02,GEN-05
+    python3 src/deploy/test_genie.py --profile serverless-stable
+    python3 src/deploy/test_genie.py --profile serverless-stable --only GEN-01,GEN-02,GEN-05
 """
 
 import argparse

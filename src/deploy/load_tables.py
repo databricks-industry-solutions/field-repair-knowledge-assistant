@@ -36,17 +36,20 @@ from pathlib import Path
 
 # Make the repo root importable so both `parse_tickets` and
 # `preflight.preflight` resolve regardless of the invocation cwd.
-REPO_ROOT = Path(__file__).resolve().parent.parent
+# Serverless spark_python_task execs this file with no `__file__` and CWD = the
+# script's own dir; fall back to CWD so paths resolve there and locally.
+_HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
+REPO_ROOT = _HERE.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-if str(Path(__file__).resolve().parent) not in sys.path:
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
 SYNTH_DIR = REPO_ROOT / "synth"
 if str(SYNTH_DIR) not in sys.path:
     sys.path.insert(0, str(SYNTH_DIR))
 
 from parse_tickets import parse_all  # noqa: E402
-from preflight.preflight import (  # noqa: E402
+from preflight import (  # noqa: E402
     DEMO_CATALOG,
     DEMO_SCHEMA,
     DEFAULT_PROFILE,
@@ -54,7 +57,9 @@ from preflight.preflight import (  # noqa: E402
     first_warehouse_id,
     run_sql,
 )
+import env as _env  # noqa: E402
 
+WAREHOUSE_ID = _env.WAREHOUSE_ID
 FQ = f"{DEMO_CATALOG}.{DEMO_SCHEMA}"
 TICKETS = f"{FQ}.rnd_tickets"
 ACTIVITY = f"{FQ}.ticket_activity"
@@ -379,8 +384,30 @@ def append_synthetic(profile, warehouse_id, host):
           f"(is_synthetic=false), synthetic INSERT-only + idempotent.")
 
 
+def _apply_target(args):
+    """Rebind FQ/TICKETS/ACTIVITY/WAREHOUSE_ID from --catalog/--schema/--warehouse-id.
+
+    Serverless job environments cannot set env vars, so the flags are the only way a
+    DAB task can retarget this script (mirrors build_silver._apply_target).
+    """
+    g = globals()
+    cat, sch, fq, wh = _env.apply_target_args(args)
+    old_fq = g.get("FQ")
+    g["FQ"], g["WAREHOUSE_ID"] = fq, wh
+    if old_fq and old_fq != fq:
+        # Replace the old FQ ANYWHERE it appears in a string global — not just as a
+        # prefix — so module-level SQL constants (CREATE_TICKETS/CREATE_ACTIVITY, which
+        # embed "<catalog>.<schema>.rnd_tickets" inline) are retargeted too.
+        needle = old_fq + "."
+        for k, v in list(g.items()):
+            if isinstance(v, str) and needle in v:
+                g[k] = v.replace(needle, fq + ".")
+    return cat, sch, fq, wh
+
+
 def main():
     ap = argparse.ArgumentParser()
+    _env.add_target_args(ap)
     ap.add_argument("--profile", default=DEFAULT_PROFILE)
     ap.add_argument("--append-synthetic", action="store_true",
                     help="Wave-3 append mode: leakage-gate + ALTER ADD "
@@ -388,12 +415,15 @@ def main():
                          "append of the staged synthetic rows. Never touches "
                          "the real-corpus CREATE OR REPLACE path.")
     args = ap.parse_args()
+    _apply_target(args)
 
     # Step 0 — never write to the wrong/unauthenticated workspace (T-02-03).
     host = assert_target_host(args.profile)
-    warehouse_id = first_warehouse_id(args.profile)
+    # Warehouse comes from --warehouse-id (DAB passes ${var.warehouse_id}); fall back
+    # to auto-discovery only when it was not provided (local convenience).
+    warehouse_id = WAREHOUSE_ID or first_warehouse_id(args.profile)
     if not warehouse_id:
-        print("FATAL: no serverless warehouse resolved; cannot load tables.",
+        print("FATAL: no serverless warehouse resolved; pass --warehouse-id.",
               file=sys.stderr)
         sys.exit(2)
 

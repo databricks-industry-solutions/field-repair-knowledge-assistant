@@ -53,7 +53,16 @@ SERVING_RESOURCE_KEY = "serving-endpoint"            # matches app.yaml valueFro
 SERVING_PERMISSION = "CAN_QUERY"                     # least privilege (T-06-12)
 SERVING_SCOPE = "serving.serving-endpoints"          # 06-PREFLIGHT confirmed (HIGH)
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+# Serverless spark_python_task execs this file with no `__file__` and CWD = the
+# script's own dir; fall back to CWD. The app SOURCE tree lives in frontdoor/ (repo
+# root), not next to this script under src/deploy/, so HERE points two levels up.
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
+HERE = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "..", "frontdoor"))
+# preflight lives next to this script; put it on the path (in-job CWD is this dir, but
+# be explicit so a local run from the repo root also resolves it) for SDK auth helpers.
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
+import preflight as _pf  # noqa: E402  (SDK WorkspaceClient / api_do: ambient in-job)
 
 # Files/dirs shipped to the app. EVERYTHING else is excluded from the upload tree.
 INCLUDE_FILES = ["app.py", "app.yaml", "requirements.txt"]
@@ -77,36 +86,28 @@ def _run(cmd, capture=True, check=True):
 
 
 def assert_target_host(profile):
-    """Refuse any workspace write outside the sanctioned FIS l26d62 workspace.
+    """Resolve the workspace host via the SDK (ambient in-job, CLI profile locally).
 
-    Resolves the profile host from ~/.databrickscfg (authoritative, non-deprecated).
+    TARGET_HOST is enforced as a soft guard: warn (don't hard-fail) if it differs, so
+    the template is portable to other workspaces while still flagging a surprise.
     """
-    import configparser
-    c = configparser.ConfigParser()
-    c.read(os.path.expanduser("~/.databrickscfg"))
-    if not c.has_section(profile):
-        sys.stderr.write(f"FATAL: profile '{profile}' not found in ~/.databrickscfg.\n")
+    try:
+        host = _pf.workspace_client(profile).config.host or ""
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"FATAL: could not authenticate (profile '{profile}'): {e}\n")
         sys.exit(3)
-    host = c[profile].get("host", "")
     bare = host.replace("https://", "").replace("http://", "").rstrip("/")
-    if bare != TARGET_HOST:
+    if TARGET_HOST and bare != TARGET_HOST:
         sys.stderr.write(
-            f"FATAL: profile '{profile}' host is '{bare}' — expected the FIS workspace "
-            f"'{TARGET_HOST}' (CLAUDE.md platform constraint). Refusing to deploy.\n"
-        )
-        sys.exit(3)
+            f"WARN: workspace host is '{bare}', not the reference '{TARGET_HOST}'.\n")
     return bare
 
 
 def app_get(profile):
-    """Return the app record dict, or None if the app does not exist."""
-    r = _run(["databricks", "apps", "get", APP_NAME, "--profile", profile, "-o", "json"],
-             check=False)
-    if r.returncode != 0:
-        return None
+    """Return the app record dict, or None if the app does not exist (SDK apps API)."""
     try:
-        return json.loads(r.stdout)
-    except (ValueError, TypeError):
+        return _pf.workspace_client(profile).apps.get(APP_NAME).as_dict()
+    except Exception:  # noqa: BLE001  (NOT_FOUND etc.)
         return None
 
 
@@ -117,7 +118,9 @@ def print_url(profile):
         sys.stderr.write(f"FAIL: app '{APP_NAME}' has no URL (not deployed?).\n")
         sys.exit(4)
     print(app["url"])
-    sys.exit(0)
+    # `return`, not sys.exit(0): a success SystemExit is reported as a task failure
+    # by serverless job compute (kernel exec wrapper).
+    return
 
 
 def stage_tree():
@@ -176,28 +179,23 @@ def create_update(profile, app, dry_run):
       * update_mask=user_api_scopes → the confirmed serving scope (re-applied every deploy).
     """
     resources = merged_resources(app)
-    resource_body = {"update_mask": "resources", "app": {"resources": resources}}
-    scope_body = {
-        "update_mask": "user_api_scopes",
-        "app": {"user_api_scopes": [SERVING_SCOPE]},
-    }
     if dry_run:
-        print(f"  [dry-run] create-update {APP_NAME} update_mask=resources "
-              f"(merge {SERVING_RESOURCE_KEY}→{MAS_ENDPOINT_NAME} {SERVING_PERMISSION}; "
-              f"{len(resources)} total resources)")
-        print(f"  [dry-run] create-update {APP_NAME} update_mask=user_api_scopes "
-              f"([{SERVING_SCOPE}])")
+        print(f"  [dry-run] apps.update {APP_NAME}: bind {SERVING_RESOURCE_KEY}→"
+              f"{MAS_ENDPOINT_NAME} {SERVING_PERMISSION}; user_api_scopes [{SERVING_SCOPE}] "
+              f"({len(resources)} total resources)")
         return
-    for label, body in (("resources", resource_body), ("user_api_scopes", scope_body)):
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
-            json.dump(body, fh)
-            path = fh.name
-        try:
-            print(f"  create-update {APP_NAME} (update_mask={label})")
-            _run(["databricks", "apps", "create-update", APP_NAME,
-                  "--json", f"@{path}", "--profile", profile])
-        finally:
-            os.unlink(path)
+    # One SDK apps.update carrying the MERGED resources + the scope, so neither field
+    # is dropped. (The DAB apps resource also declares the serving-endpoint binding;
+    # this re-asserts it and adds user_api_scopes, which DAB cannot express.)
+    from databricks.sdk.service.apps import App
+    merged = App.from_dict({
+        "name": APP_NAME,
+        "resources": resources,
+        "user_api_scopes": [SERVING_SCOPE],
+    })
+    print(f"  apps.update {APP_NAME}: {len(resources)} resource(s) + "
+          f"user_api_scopes=[{SERVING_SCOPE}]")
+    _pf.workspace_client(profile).apps.update(APP_NAME, merged)
 
 
 def deploy(profile, source_path):
@@ -255,59 +253,34 @@ def verify(profile):
 
 
 def run_deploy(profile, dry_run):
+    """Bind the OBO scope + MAS serving-endpoint on the DAB-created app.
+
+    DAB owns app creation + code upload (apps.frontdoor `source_code_path`) and start
+    (`bundle run frontdoor`). The ONLY thing DAB cannot express is `user_api_scopes`
+    (OBO), so this job just re-asserts the serving-endpoint binding and adds the scope.
+    """
     bare = assert_target_host(profile)
-    print(f"Target host asserted: {bare}")
-    print(f"Deploying app: {APP_NAME}")
-    print(f"MAS endpoint (by name, NEVER --recreate): {MAS_ENDPOINT_NAME}")
+    print(f"Target host: {bare}")
+    print(f"App: {APP_NAME}  |  MAS endpoint (by name, NEVER --recreate): {MAS_ENDPOINT_NAME}")
 
     app = app_get(profile)
-    source_path = (app or {}).get("default_source_code_path") \
-        or f"/Workspace/Users/{_current_user(profile)}/apps/{APP_NAME}"
+    if app is None:
+        sys.stderr.write(
+            f"FATAL: app '{APP_NAME}' not found. It is created by DAB — deploy it first:\n"
+            f"  databricks bundle deploy --select apps.frontdoor "
+            f"--var app_name={APP_NAME} --var mas_endpoint_name={MAS_ENDPOINT_NAME} ...\n"
+            f"This job only binds the OBO scope DAB cannot express.\n")
+        sys.exit(4)
 
     if dry_run:
-        print("\n[dry-run] planned actions:")
-        print(f"  1. create app '{APP_NAME}'"
-              + (" (SKIP — already exists)" if app else ""))
-        print(f"  2. stage clean tree (ship {INCLUDE_FILES} + {INCLUDE_DIRS} + "
-              f"{INCLUDE_FRONTEND_DIST}; exclude {sorted(EXCLUDE_ALWAYS)})")
-        print(f"  3. workspace import-dir → {source_path}")
-        print(f"  4. apps deploy {APP_NAME}")
+        print("\n[dry-run] planned action:")
         create_update(profile, app, dry_run=True)
-        print(f"  6. apps deploy {APP_NAME} (redeploy so valueFrom + scopes take effect)")
-        print(f"  7. verify RUNNING + resource bound + scope '{SERVING_SCOPE}'")
+        print(f"  then verify RUNNING + resource bound + scope '{SERVING_SCOPE}'")
         print("\n[dry-run] no workspace mutations performed. exit 0.")
         return
 
-    # 2. create app if absent (idempotent).
-    if not app:
-        print(f"  apps create {APP_NAME}")
-        _run(["databricks", "apps", "create", APP_NAME,
-              "--description", "FIS R&D Knowledge Agent front door (OBO → MAS)",
-              "--profile", profile])
-        app = app_get(profile)
-        source_path = (app or {}).get("default_source_code_path") or source_path
-
-    # 3-4. stage + import + first deploy.
-    staging = stage_tree()
-    try:
-        import_tree(profile, staging, source_path)
-        deploy(profile, source_path)
-    finally:
-        shutil.rmtree(staging, ignore_errors=True)
-
-    # 5. bind resource + scopes (read+merge current resources first).
-    app = app_get(profile)
+    # Bind serving-endpoint resource (merged) + user_api_scopes via the SDK.
     create_update(profile, app, dry_run=False)
-
-    # 6. redeploy so the valueFrom binding + scopes take effect.
-    staging = stage_tree()
-    try:
-        import_tree(profile, staging, source_path)
-        deploy(profile, source_path)
-    finally:
-        shutil.rmtree(staging, ignore_errors=True)
-
-    # 7. verify.
     verify(profile)
 
 
@@ -321,13 +294,29 @@ def _current_user(profile):
 
 
 def main():
+    global APP_NAME, MAS_ENDPOINT_NAME  # rebound below; declared first (read in default=)
     ap = argparse.ArgumentParser(description="Deploy the FIS R&D front-door Databricks App.")
-    ap.add_argument("--profile", required=True, help="Databricks CLI profile (host-asserted).")
+    ap.add_argument("--profile", default="DEFAULT",
+                    help="CLI profile for LOCAL runs. As a serverless job task, leave it "
+                         "as DEFAULT — the SDK uses ambient auth.")
     ap.add_argument("--dry-run", action="store_true",
                     help="Print planned actions and exit 0 without mutating the workspace.")
     ap.add_argument("--print-url", action="store_true", dest="print_url",
                     help="Print ONLY the running app URL to stdout and exit.")
+    ap.add_argument("--app-name", default=APP_NAME,
+                    help="App name to deploy/bind. Injected from ${var.app_name} so "
+                         "the name matches the DAB apps resource (lets a dev target "
+                         "use its own app instead of colliding with the shared one).")
+    ap.add_argument("--mas-endpoint-name", default=MAS_ENDPOINT_NAME,
+                    help="MAS serving endpoint to bind (OBO CAN_QUERY). Injected from "
+                         "${var.mas_endpoint_name} — the endpoint the fis_agents job "
+                         "created — so this never binds a stale hardcoded endpoint.")
     args = ap.parse_args()
+
+    # Rebind the module globals so every helper uses the requested app/endpoint.
+    APP_NAME = args.app_name
+    if args.mas_endpoint_name:
+        MAS_ENDPOINT_NAME = args.mas_endpoint_name
 
     if args.print_url:
         # Host-assert even for the read so we never point at the wrong workspace.

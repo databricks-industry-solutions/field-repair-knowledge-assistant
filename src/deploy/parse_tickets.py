@@ -35,6 +35,7 @@ Importable:
     ticket = build_ticket_record(fields, activity_events, note_events, bucket)
 """
 
+import os
 import re
 import sys
 from datetime import datetime, date
@@ -42,7 +43,17 @@ from pathlib import Path
 
 # --- Configuration ----------------------------------------------------------
 
-SAMPLE_DIR = Path("/Users/dong.qiaoyang/Downloads/SeviceNow AI")
+# The ServiceNow ticket corpus ships WITH the repo (data/servicenow/) so the bundle
+# is self-contained: DAB syncs the whole bundle root to the workspace, so when this
+# runs as a serverless job task the files sit next to the code. Resolve the path
+# relative to THIS file (repo root = parents[2]); FIS_SAMPLE_DIR overrides it.
+# Serverless spark_python_task execs the file WITHOUT defining `__file__`, and sets
+# the CWD to the script's own directory. So resolve the repo root from `__file__`
+# when available (local runs) and fall back to CWD (serverless job task).
+_HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
+SAMPLE_DIR = Path(
+    os.environ.get("FIS_SAMPLE_DIR") or (_HERE.parents[1] / "data" / "servicenow")
+)
 
 # Deterministic processing order → deterministic 0001017 dedup (first wins).
 SOURCE_FILES = [
@@ -512,7 +523,10 @@ def main():
     print("-" * 72)
     n_pass = sum(1 for _, ok, _ in results if ok)
     print(f"{n_pass} PASS / {len(results) - n_pass} FAIL of {len(results)} self-assertions")
-    sys.exit(0 if all_pass else 1)
+    # Only sys.exit on FAILURE. A success `sys.exit(0)` raises SystemExit, which
+    # serverless job compute (kernel exec wrapper) reports as a task failure.
+    if not all_pass:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

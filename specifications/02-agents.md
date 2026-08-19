@@ -32,7 +32,12 @@ Four constraints, each verified against the live API rather than assumed:
    but has size 2`. So the content column must be pre-composed upstream.
 2. **The `metadata` struct is required**, and checked *before* column validation —
    a table without it fails with `missing required column '_metadata'`.
-3. **CDF or a streaming table is required.** This is what rules out a view.
+3. **The source must be streamable — a plain Delta table with CDF, or a streaming
+   table.** The sync does a streaming read. This rules out a plain view, and it also
+   rules out a **materialized view**: streaming from an MV fails with
+   `STREAMING_FROM_MATERIALIZED_VIEW` *even when CDF is set* (CDF exposes the change
+   feed but does not make an MV a streamable source). So `rd_tasks_serving` is built as a
+   plain `CREATE OR REPLACE TABLE … TBLPROPERTIES(delta.enableChangeDataFeed=true)`.
 4. **`file_col` is immutable.** Changing the indexed column requires DELETE +
    re-create of the knowledge source, which forces a full re-index. Plan the
    content column before first attach.

@@ -9,7 +9,7 @@ locally" guidance: there is no local MAS to import — it is a managed Agent Bri
 tile, so we wrap the proven CLI-token invocation client.
 
 We REUSE the standalone, CLI-profile-based invocation helpers from
-`agents/test_supervisor.py` (`invoke_mas`, `TICKET_RE`, `prose_of`, plus the
+`src/deploy/test_supervisor.py` (`invoke_mas`, `TICKET_RE`, `prose_of`, plus the
 endpoint/host/token discovery helpers) rather than reimplementing HTTP or
 citation-shaping code. We do NOT import `frontdoor/server/mas.py`: it is coupled
 to the Databricks Apps OBO config module and expects an `x-forwarded` end-user

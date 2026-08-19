@@ -1,60 +1,42 @@
 #!/usr/bin/env python3
 """
-FIS AI Knowledge Agent — one serving table for BOTH Genie and the KA.
+FIS AI Knowledge Agent — LOCAL Genie analytics views over rd_tasks_serving + KA/Genie checks.
 
-Today the two engines read two different surfaces:
-  * KA    -> rnd_tickets.ka_content            (text + metadata struct, for citations)
-  * Genie -> rd_tasks_gold_analytics (a VIEW)  (structured columns, for SQL)
+The consolidated `rd_tasks_serving` table (the single surface BOTH engines read —
+KA indexes `ka_content`, Genie reads the structured columns) is built IN-JOB by the
+`serving` notebook (src/notebooks/serving.py), which also creates the analytics views and
+runs verify(). This script is a LOCAL convenience CLI (run from a laptop with a warehouse):
+it is NOT a task in the fis_data_pipeline job. It owns the two warehouse-layer operations:
 
-`ka_content` is a COPY of the enrichment segments written onto rnd_tickets, so
-re-running enrichment leaves the KA serving stale text until build_ka_content.py
-runs again. This script builds a single physical table carrying everything both
-engines need, so one refresh serves both.
-
-WHY A TABLE AND NOT A VIEW (verified live against the KA API):
-    Attaching a view fails —
-      "must either be a streaming table or have Change Data Feed enabled.
-       To enable CDF: ALTER TABLE ... SET TBLPROPERTIES (...)"
-    CDF is not settable on a view, so the KA source MUST be a physical Delta
-    table. That is the whole reason this is a CTAS + MERGE and not a `CREATE VIEW`.
-
-Two other KA constraints this table satisfies, both confirmed by live probes:
-  * `metadata` STRUCT is REQUIRED. Attaching a table without it fails with
-    "missing required column '_metadata'" BEFORE any column-choice validation.
-  * `file_col` names EXACTLY ONE content column ("Array must have size 1, but has
-    size 2"). So `ka_content` must be pre-composed — the KA cannot index several
-    columns and cannot infer one.
-
-Composition of `ka_content` is IMPORTED from build_ka_content.py rather than
-re-implemented, so the serving table is a pure refactor: retrieval behaviour (and
-therefore the Phase 07 eval numbers) stays identical.
-
-Grain: one row per task. silver, enrichment and rnd_tickets are all 223 rows and
-join 1:1 on `number` (asserted by --verify).
+  1. The curated Genie serving views over rd_tasks_serving:
+       * rd_tasks_serving_analytics  — the canonical, COMMENTed Genie surface.
+       * rd_tasks_gold_analytics     — a compatibility view of the same shape,
+         kept because the supervisor grants and the Genie/supervisor tests still
+         reference that legacy name.
+     The column COMMENTs are Genie's text-to-SQL hints, and `WITH SCHEMA
+     COMPENSATION` keeps them exactly as Genie expects.
+  2. `--verify`: the KA/Genie acceptance checks against the notebook-built table
+     (metadata struct present, CDF enabled, one pre-composed ka_content column,
+     citation file_path present, 1:1 grain, enrichment populated).
 
 Usage:
-    python3 enrich/build_serving_table.py --profile serverless-stable
-    python3 enrich/build_serving_table.py --profile serverless-stable --verify
-    python3 enrich/build_serving_table.py --profile serverless-stable --dry-run
+    python3 src/deploy/build_serving_table.py --profile serverless-stable
+    python3 src/deploy/build_serving_table.py --profile serverless-stable --verify
+    python3 src/deploy/build_serving_table.py --profile serverless-stable --analytics-only
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "preflight"))
+# Serverless spark_python_task execs this file with no `__file__` and CWD = the
+# script's own dir; fall back to CWD so paths resolve there and locally. preflight.py
+# and env.py live in THIS dir (the old REPO/"preflight" path no longer exists).
+_HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
+REPO = _HERE.parent
+sys.path.insert(0, str(_HERE))
 from preflight import assert_target_host, run_sql  # noqa: E402
-sys.path.insert(0, str(REPO / "enrich"))
-from build_glossary import run_sql_poll  # noqa: E402
-# Reuse the PROVEN content recipe — do not fork it (a second copy would drift and
-# silently change retrieval quality).
-from build_ka_content import (  # noqa: E402
-    KA_CONTENT_COL,
-    SEGMENT_COLS,
-    expand_expr,
-    load_acronym_map,
-)
 
 # --- deployment target: catalog/schema/warehouse (see preflight/env.py) ---
 # Centralised so a DAB target can retarget this without editing 14 files.
@@ -66,82 +48,15 @@ CATALOG = _env.CATALOG
 SCHEMA = _env.SCHEMA
 FQ = f"{CATALOG}.{SCHEMA}"
 
-T_SILVER = f"{FQ}.rd_tasks_silver"
 T_TICKETS = f"{FQ}.rnd_tickets"
-T_GOLD_ENRICH = f"{FQ}.rd_tasks_gold_enrichment"
-T_NOTE_ENTRIES = f"{FQ}.rd_task_note_entries"
 T_SERVING = f"{FQ}.rd_tasks_serving"
+KA_CONTENT_COL = "ka_content"  # the one indexed KA content column on rd_tasks_serving
 DEFAULT_PROFILE = "serverless-stable"
 
-EXPECTED_ROWS = 223
-
-
-def serving_select(acr_map):
-    """The SELECT that composes the serving row: silver + enrichment + content.
-
-    Column choices:
-      * structured columns come from SILVER (the Genie-facing grain: priority,
-        status, location parts, durations).
-      * derived columns come from ENRICHMENT (systems/vendors/category/segments).
-      * `case_text` and `metadata` come from RND_TICKETS — metadata is what makes
-        a KA hit citeable, and case_text is kept so the raw ticket stays queryable
-        (and so file_col can be A/B'd later without rebuilding).
-      * `ka_content` is composed HERE with the imported recipe.
-    """
-    parts = [expand_expr(f"coalesce(e.{c}, '')", acr_map) for c in SEGMENT_COLS]
-    ka_content = "concat_ws('\\n', " + ", ".join(parts) + ")"
-    return f"""
-SELECT
-  -- identity
-  s.number,
-  s.content_hash,
-  -- structured (Genie): straight from silver
-  s.title, s.parent, s.assignment_group, s.assigned_to,
-  s.priority_level, s.priority_label, s.status, s.workflow_status, s.is_closed,
-  s.location, s.location_state, s.location_highway, s.location_direction,
-  s.location_site, s.site_key,
-  s.duration_days, s.num_activities, s.comment_count, s.max_inactivity_gap_days,
-  coalesce(ne.num_note_entries, 0) AS num_note_entries,
-  -- raw narrative (kept queryable; also the A/B alternative for file_col)
-  s.description, s.notes, s.close_notes, t.case_text,
-  -- derived (enrichment)
-  e.systems_involved, e.hardware_mentioned, e.vendors, e.problem_category,
-  e.summary, e.customer_impact, e.troubleshooting, e.recommendation,
-  e.root_cause, e.resolution, e.resolution_type,
-  e.conf_systems, e.conf_root_cause, e.conf_resolution_type,
-  e.min_confidence, e.needs_review,
-  e.prompt_version, e.model, e.enriched_at,
-  -- KA: the ONE indexed content column, pre-composed (file_col takes exactly one)
-  {ka_content} AS {KA_CONTENT_COL},
-  -- KA: REQUIRED struct — without it the attach fails outright
-  t.metadata
-FROM {T_SILVER} s
-LEFT JOIN {T_TICKETS} t ON s.number = t.number
-LEFT JOIN {T_GOLD_ENRICH} e ON s.number = e.number
-LEFT JOIN (SELECT number, count(*) AS num_note_entries
-           FROM {T_NOTE_ENTRIES} GROUP BY number) ne ON s.number = ne.number
-""".strip()
-
-
-def sql_create(acr_map):
-    """CTAS + CDF. CDF is MANDATORY for the KA source (verified: attach fails without)."""
-    return f"""
-CREATE OR REPLACE TABLE {T_SERVING}
-COMMENT 'One serving row per FIS R&D task for BOTH engines. KA indexes ka_content (segmented + glossary-acronym-expanded) and cites via the metadata struct; Genie reads the structured columns. Built by enrich/build_serving_table.py from silver + rd_tasks_gold_enrichment + rnd_tickets.'
-TBLPROPERTIES (delta.enableChangeDataFeed = true)
-AS {serving_select(acr_map)}
-""".strip()
-
-
-def sql_refresh(acr_map):
-    """Idempotent refresh: MERGE on number (no rebuild, so CDF history survives)."""
-    return f"""
-MERGE INTO {T_SERVING} tgt
-USING ({serving_select(acr_map)}) src
-ON tgt.number = src.number
-WHEN MATCHED THEN UPDATE SET *
-WHEN NOT MATCHED THEN INSERT *
-""".strip()
+# Demo-specific corpus size. Left UNSET (0) by default so the template works for any
+# corpus — the check then only asserts the serving table is non-empty. Pin it via
+# FIS_EXPECTED_ROWS=<n> to hard-assert an exact count for a specific demo dataset.
+EXPECTED_ROWS = int(os.environ.get("FIS_EXPECTED_ROWS", "0"))
 
 
 # --- Genie serving view over the ONE table ----------------------------------
@@ -149,9 +64,9 @@ WHEN NOT MATCHED THEN INSERT *
 # (COMMENTs are the text-to-SQL hints). It now sits on the serving table, not on
 # a silver-join chain — so both engines resolve to the SAME physical rows.
 
-def sql_analytics_view():
+def sql_analytics_view(view="rd_tasks_serving_analytics"):
     return f"""
-CREATE OR REPLACE VIEW {FQ}.rd_tasks_serving_analytics (
+CREATE OR REPLACE VIEW {FQ}.{view} (
   task_number COMMENT 'R&D task id, e.g. R&DTASK0001070. Unique key.',
   title COMMENT 'Short description of the task/issue.',
   parent_case COMMENT 'Parent support case id (SDC...).',
@@ -194,9 +109,8 @@ FROM {T_SERVING}
 
 # --- runners ----------------------------------------------------------------
 
-def run_or_die(label, stmt, profile, poll=False):
-    runner = run_sql_poll if poll else run_sql
-    state, data = runner(stmt, profile, WAREHOUSE_ID)
+def run_or_die(label, stmt, profile):
+    state, data = run_sql(stmt, profile, WAREHOUSE_ID)
     if state != "SUCCEEDED":
         print(f"FATAL: {label} failed (state={state}).", file=sys.stderr)
         print(stmt[:2000], file=sys.stderr)
@@ -212,37 +126,19 @@ def scalar(stmt, profile):
     return data[0][0], state
 
 
-def table_exists(profile):
-    st, _ = run_sql(f"DESCRIBE {T_SERVING}", profile, WAREHOUSE_ID)
-    return st == "SUCCEEDED"
+def _build_analytics_views(profile):
+    """Create the curated Genie view + the rd_tasks_gold_analytics compat alias.
 
-
-def build(profile, dry_run=False):
-    print("[serving] Step 1: acronym map FROM approved glossary (GLO-02)...")
-    acr_map = load_acronym_map(profile)
-    print(f"[serving]   {len(acr_map)} acronyms: {sorted(acr_map)}")
-    if not acr_map:
-        print("FATAL: no approved acronyms — refusing to build unexpanded content.",
-              file=sys.stderr)
-        sys.exit(4)
-
-    exists = table_exists(profile)
-    stmt = sql_refresh(acr_map) if exists else sql_create(acr_map)
-    label = ("MERGE refresh rd_tasks_serving" if exists
-             else "CREATE rd_tasks_serving (CTAS + CDF)")
-
-    if dry_run:
-        print(f"\n[dry-run] would run: {label}\n")
-        print(stmt[:3000])
-        print(f"\n[dry-run] would run: rd_tasks_serving_analytics view")
-        print("\n[dry-run] no mutations. exit 0.")
-        return
-
-    print(f"[serving] Step 2: {label}...")
-    run_or_die(label, stmt, profile, poll=True)
-
-    print("[serving] Step 3: rd_tasks_serving_analytics (Genie surface)...")
-    run_or_die("rd_tasks_serving_analytics view", sql_analytics_view(), profile)
+    Both are the same curated, COMMENTed surface over rd_tasks_serving.
+    `rd_tasks_serving_analytics` is the canonical name; `rd_tasks_gold_analytics`
+    is kept as a compatibility view because the supervisor grants and the
+    Genie/supervisor tests still reference that legacy name (the enrich pipeline no
+    longer creates the old silver-join gold view).
+    """
+    run_or_die("rd_tasks_serving_analytics view",
+               sql_analytics_view("rd_tasks_serving_analytics"), profile)
+    run_or_die("rd_tasks_gold_analytics view (compat)",
+               sql_analytics_view("rd_tasks_gold_analytics"), profile)
 
 
 # --- --verify ---------------------------------------------------------------
@@ -252,8 +148,12 @@ def verify(profile):
     checks = []
 
     n, _ = scalar(f"SELECT count(*) FROM {T_SERVING}", profile)
-    checks.append((f"row count == {EXPECTED_ROWS}",
-                   n is not None and int(n) == EXPECTED_ROWS, str(n)))
+    if EXPECTED_ROWS:
+        checks.append((f"row count == {EXPECTED_ROWS}",
+                       n is not None and int(n) == EXPECTED_ROWS, str(n)))
+    else:
+        checks.append(("row count > 0 (corpus non-empty)",
+                       n is not None and int(n) > 0, str(n)))
 
     # KA hard requirements (both verified live as attach-blocking).
     st, cols = run_sql(f"DESCRIBE {T_SERVING}", profile, WAREHOUSE_ID)
@@ -262,6 +162,18 @@ def verify(profile):
                    "metadata" in names, "present" if "metadata" in names else "MISSING"))
     checks.append((f"{KA_CONTENT_COL} present (the one indexed column)",
                    KA_CONTENT_COL in names, "present" if KA_CONTENT_COL in names else "MISSING"))
+
+    # rd_tasks_serving MUST be a real TABLE, not a view/materialized view: the KA sync
+    # streams from it, and streaming from an MV fails even with CDF nominally set. This
+    # check closes the gap that let the MV regression pass CDF-only verification.
+    _, tt = run_sql(
+        f"SELECT table_type FROM {CATALOG}.information_schema.tables "
+        f"WHERE table_schema='{SCHEMA}' AND table_name='rd_tasks_serving'",
+        profile, WAREHOUSE_ID)
+    ttype = tt[0][0] if (tt and tt[0]) else ""
+    checks.append(("rd_tasks_serving is a TABLE, not a view/MV (KA streaming attach)",
+                   str(ttype).upper() in ("MANAGED", "EXTERNAL", "BASE TABLE", "MANAGED_TABLE"),
+                   str(ttype)))
 
     st, props = run_sql(f"SHOW TBLPROPERTIES {T_SERVING}", profile, WAREHOUSE_ID)
     cdf = any(r and "changeDataFeed" in r[0] and str(r[1]).lower() in ("true", "supported")
@@ -277,7 +189,7 @@ def verify(profile):
     checks.append(("every row has a citation file_path == 0 null",
                    n is not None and int(n) == 0, str(n)))
 
-    # Acronym expansion actually applied (same assertion build_ka_content makes).
+    # Acronym expansion actually applied (the pipeline composed ka_content).
     n, _ = scalar(f"SELECT count(*) FROM {T_SERVING} "
                   f"WHERE {KA_CONTENT_COL} LIKE '%AUR (%'", profile)
     checks.append(("acronym expansion present (ka_content LIKE 'AUR (%')",
@@ -292,18 +204,30 @@ def verify(profile):
     checks.append(("every row carries enrichment == 0 null category",
                    n is not None and int(n) == 0, str(n)))
 
-    # PARITY: ka_content must match what the KA serves today, or this is not a
-    # pure refactor and the Phase 07 eval numbers stop describing it.
-    n, _ = scalar(
-        f"SELECT count(*) FROM {T_SERVING} s JOIN {T_TICKETS} t ON s.number = t.number "
-        f"WHERE s.{KA_CONTENT_COL} <> t.{KA_CONTENT_COL}", profile)
-    checks.append(("ka_content IDENTICAL to rnd_tickets.ka_content (pure refactor)",
-                   n is not None and int(n) == 0, f"{n} differing"))
+    # PARITY (legacy, warehouse path only): historically ka_content had to match the
+    # copy on rnd_tickets. The serving notebook composes ka_content directly in
+    # rd_tasks_serving and no longer populates rnd_tickets.ka_content, so this check
+    # is skipped when that legacy column is absent (its parity target is gone).
+    st_t, cols_t = run_sql(f"DESCRIBE {T_TICKETS}", profile, WAREHOUSE_ID)
+    tickets_has_ka = any(r and r[0] == KA_CONTENT_COL for r in (cols_t or []))
+    if tickets_has_ka:
+        n, _ = scalar(
+            f"SELECT count(*) FROM {T_SERVING} s JOIN {T_TICKETS} t ON s.number = t.number "
+            f"WHERE s.{KA_CONTENT_COL} <> t.{KA_CONTENT_COL}", profile)
+        checks.append(("ka_content IDENTICAL to rnd_tickets.ka_content (pure refactor)",
+                       n is not None and int(n) == 0, f"{n} differing"))
+    else:
+        print("  [SKIP] ka_content parity vs rnd_tickets.ka_content "
+              "(pipeline composes ka_content in rd_tasks_serving; legacy column absent)")
 
     # Genie surface reads.
     n, _ = scalar(f"SELECT count(*) FROM {FQ}.rd_tasks_serving_analytics", profile)
-    checks.append((f"analytics view readable == {EXPECTED_ROWS}",
-                   n is not None and int(n) == EXPECTED_ROWS, str(n)))
+    if EXPECTED_ROWS:
+        checks.append((f"analytics view readable == {EXPECTED_ROWS}",
+                       n is not None and int(n) == EXPECTED_ROWS, str(n)))
+    else:
+        checks.append(("analytics view readable (rows > 0)",
+                       n is not None and int(n) > 0, str(n)))
 
     ok = True
     for label, passed, got in checks:
@@ -326,7 +250,6 @@ def _apply_target(args):
     Module-level table names are f-strings evaluated at import, so they are
     recomputed here rather than just updating CATALOG.
     """
-    import re as _re
     g = globals()
     cat, sch, fq, wh = _env.apply_target_args(args)
     old_fq = g.get("FQ")
@@ -347,15 +270,17 @@ def _apply_target(args):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Build the single rd_tasks_serving table for Genie + KA.")
+        description="LOCAL: Genie analytics views over the notebook-built rd_tasks_serving, "
+                    "plus the KA/Genie acceptance checks.")
     # Accept --catalog/--schema/--warehouse-id so a DAB job task can retarget
     # this script. Serverless job environments cannot set env vars, so flags
     # are the only retargeting channel available to the bundle.
     _env.add_target_args(ap)
     ap.add_argument("--profile", default=DEFAULT_PROFILE)
     ap.add_argument("--verify", action="store_true", help="run acceptance checks only")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="print the SQL without mutating anything")
+    ap.add_argument("--analytics-only", action="store_true",
+                    help="only (re)create the Genie analytics views over "
+                         "rd_tasks_serving (skip the acceptance checks).")
     args = ap.parse_args()
     # Rebind module globals BEFORE any table name is used.
     _apply_target(args)
@@ -366,8 +291,12 @@ def main():
     if args.verify:
         verify(args.profile)
         return
-    build(args.profile, dry_run=args.dry_run)
-    if not args.dry_run:
+    # Default (and --analytics-only): (re)create the Genie analytics views over
+    # rd_tasks_serving. The serving TABLE itself is built in-job by the `serving` notebook
+    # (src/notebooks/serving.py), not here — this is a local convenience path.
+    print("[serving] (re)create the Genie analytics views over rd_tasks_serving...")
+    _build_analytics_views(args.profile)
+    if not args.analytics_only:
         print()
         verify(args.profile)
 

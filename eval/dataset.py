@@ -16,9 +16,9 @@ reproduce them — it cites synthetic twins. Therefore `expected_facts` capture 
 CAPABILITY / SHAPE of a good answer, NOT verbatim answer-key text or those
 held-out entities (this file is grep-gated to contain none of them). Facts are
 derived from:
-  - the PUBLIC acronym glossary (agents/glossary.md): CA -> Controller
+  - the PUBLIC acronym glossary (src/deploy/glossary.md): CA -> Controller
     Application, HTS, WIM, AUR, OVC, NetBooter, ALPR — safe conceptual anchors;
-  - the SHAPE assertions already proven in agents/test_supervisor.py
+  - the SHAPE assertions already proven in src/deploy/test_supervisor.py
     (check_sup04 three priority buckets; check_sup05 sw/hw split + direction).
 
 We call `load_archetypes()` ONLY to confirm the archetype count/order aligns with
@@ -41,7 +41,7 @@ sys.path.insert(0, str(REPO_ROOT / "eval"))
 from prompts_loader import load_archetypes  # noqa: E402
 
 # Leakage-free question phrasing, reused verbatim from the proven
-# agents/test_supervisor.py MATRIX (grounded on the live synthetic corpus, NOT on
+# src/deploy/test_supervisor.py MATRIX (grounded on the live synthetic corpus, NOT on
 # Prompts.md verbatim, no real-sample ticket numbers). One question per archetype.
 _QUESTIONS = {
     # A1 — terminology (CA acronym resolution).

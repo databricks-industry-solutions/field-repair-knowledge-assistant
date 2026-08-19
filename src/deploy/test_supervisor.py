@@ -25,7 +25,7 @@ Verification is content-anchored, NOT prose-trusting:
     a returned term+definition+category => glossary_lookup fired. Recorded per row
     as the evidence source when spans are unavailable.
 
-Design (mirrors agents/test_genie.py + test_ka.py — the repo convention, NOT
+Design (mirrors src/deploy/test_genie.py + test_ka.py — the repo convention, NOT
 pytest, which is not installed):
   - Step 0 host-assertion gate (reuse preflight.assert_target_host) — refuse any
     workspace but l26d62 (T-5-01).
@@ -38,9 +38,9 @@ pytest, which is not installed):
   - --only <SUP-id[,SUP-id]> filter; writes 05-SUPERVISOR-ROUTING.md.
 
 Usage:
-    python3 agents/test_supervisor.py --profile serverless-stable
-    python3 agents/test_supervisor.py --profile serverless-stable --only SUP-02,SUP-03
-    python3 agents/test_supervisor.py --profile serverless-stable --only SUP-04
+    python3 src/deploy/test_supervisor.py --profile serverless-stable
+    python3 src/deploy/test_supervisor.py --profile serverless-stable --only SUP-02,SUP-03
+    python3 src/deploy/test_supervisor.py --profile serverless-stable --only SUP-04
 """
 
 import argparse
@@ -626,7 +626,7 @@ def write_report(host, endpoint, results, verdicts, extra_sections=None):
         f"**Workspace:** `{host}`",
         f"**MAS endpoint:** `{endpoint}` (reused warm — READY; NOT re-provisioned, "
         "per 05-01 carry-forward)",
-        f"**Harness:** `agents/test_supervisor.py` (re-runnable; exits non-zero on any FAIL)",
+        f"**Harness:** `src/deploy/test_supervisor.py` (re-runnable; exits non-zero on any FAIL)",
         "",
         "Routing is verified content-anchored, not prose-trusting. **Primary "
         "(trace-equivalent):** the MAS Responses-API body returns the fired tools "

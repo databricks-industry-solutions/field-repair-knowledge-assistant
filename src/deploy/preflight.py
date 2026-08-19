@@ -18,7 +18,7 @@ Design (per Phase 1 CONTEXT + RESEARCH):
   - Doubles as demo-day endpoint warm-up (reused in Phase 8, DEMO-02).
 
 Checks use the Databricks CLI (`databricks ... --profile serverless-stable`) as
-the portable engine. The AI Dev Kit MCP tools (manage_workspace, manage_ka,
+the portable engine. The Databricks Agent Skills MCP tools (manage_workspace, manage_ka,
 manage_mas, manage_serving_endpoint, execute_sql) are the interactive equivalent
 and were used to author/verify these checks; this script is the re-runnable form.
 
@@ -76,6 +76,50 @@ def run_cli(args, profile):
         return 127, "", "databricks CLI not found"
 
 
+# --- Auth: SDK WorkspaceClient (works BOTH locally and inside DAB jobs) -------
+# The CLI (`databricks --profile <name>`) cannot authenticate on serverless job
+# compute — there is no working named profile there. The SDK's WorkspaceClient
+# authenticates from AMBIENT credentials in-job and from the chosen CLI profile
+# locally, so routing SQL/warehouse/identity through it makes these scripts run
+# unchanged in both places.
+_WC_CACHE = {}
+
+
+def _on_databricks():
+    """True when running on Databricks compute (job/notebook) vs a local shell."""
+    return bool(
+        os.environ.get("DATABRICKS_RUNTIME_VERSION")
+        or os.environ.get("DB_IS_DRIVER")
+        or os.environ.get("SPARK_LOCAL_DIRS")
+    )
+
+
+def workspace_client(profile=None):
+    """Return a cached WorkspaceClient: ambient in-job, the CLI profile locally."""
+    key = profile or "__ambient__"
+    if key not in _WC_CACHE:
+        from databricks.sdk import WorkspaceClient
+        if _on_databricks() or not profile or profile == DEFAULT_PROFILE:
+            _WC_CACHE[key] = WorkspaceClient()            # ambient (in-job / env)
+        else:
+            _WC_CACHE[key] = WorkspaceClient(profile=profile)  # local CLI profile
+    return _WC_CACHE[key]
+
+
+def api_do(method, path, profile, body=None, timeout=None):
+    """Perform an arbitrary workspace REST call via the SDK's ApiClient.
+
+    Drop-in replacement for `databricks api <method> <path> [--json <body>]` that works
+    on serverless job compute (ambient auth). Returns (exit_code, stdout_json_str,
+    stderr) to match the run_cli contract callers already parse.
+    """
+    try:
+        res = workspace_client(profile).api_client.do(method.upper(), path, body=body)
+        return 0, (json.dumps(res) if res is not None else ""), ""
+    except Exception as e:  # noqa: BLE001
+        return 1, "", str(e)
+
+
 def verdict(criterion, status, evidence, escalation=""):
     return {
         "criterion": criterion,
@@ -88,67 +132,67 @@ def verdict(criterion, status, evidence, escalation=""):
 # --- Step 0: host-assertion gate -------------------------------------------
 
 def assert_target_host(profile):
-    """HARD GATE. Returns resolved host dict or exits non-zero if not target."""
-    code, out, err = run_cli(["auth", "env"], profile)
-    if code != 0:
-        print(f"FATAL: profile '{profile}' auth invalid ({err or 'auth env failed'}).",
-              file=sys.stderr)
-        print("Fix: databricks auth login --host "
-              f"https://{TARGET_HOST_FRAGMENT}.cloud.databricks.com "
+    """HARD GATE. Returns resolved host or exits non-zero if not the target workspace."""
+    try:
+        host = workspace_client(profile).config.host or ""
+    except Exception as e:  # noqa: BLE001
+        print(f"FATAL: could not authenticate (profile '{profile}'): {e}. "
+              "Locally: databricks auth login --host "
+              f"https://{TARGET_HOST_FRAGMENT or '<workspace>'}.cloud.databricks.com "
               f"--profile {profile}", file=sys.stderr)
         sys.exit(2)
-    try:
-        env = json.loads(out).get("env", {})
-    except json.JSONDecodeError:
-        env = {}
-    host = env.get("DATABRICKS_HOST", "")
     if TARGET_HOST_FRAGMENT and TARGET_HOST_FRAGMENT not in host:
         print(f"FATAL: resolved host '{host}' is not the target "
-              f"({TARGET_HOST_FRAGMENT}). Refusing to run preflight against the "
-              "wrong workspace.", file=sys.stderr)
+              f"({TARGET_HOST_FRAGMENT}). Refusing to run against the wrong workspace.",
+              file=sys.stderr)
         sys.exit(3)
     return host
 
 
 def resolve_principal(profile):
-    code, out, _ = run_cli(["current-user", "me"], profile)
-    if code != 0:
-        return "unknown"
     try:
-        return json.loads(out).get("userName", "unknown")
-    except json.JSONDecodeError:
+        return workspace_client(profile).current_user.me().user_name or "unknown"
+    except Exception:  # noqa: BLE001
         return "unknown"
 
 
 def run_sql(statement, profile, warehouse_id):
-    """Run a SQL statement on the serverless warehouse; return (state, data_array)."""
-    payload = json.dumps({
-        "warehouse_id": warehouse_id,
-        "statement": statement,
-        "wait_timeout": "50s",
-    })
-    code, out, err = run_cli(["api", "post", "/api/2.0/sql/statements", "--json", payload],
-                             profile)
-    if code != 0:
-        return "CLI_ERROR", None
+    """Run a SQL statement on the serverless warehouse; return (state, data_array).
+
+    Uses the SDK Statement Execution API (ambient auth in-job), polling to a terminal
+    state so statements longer than the initial wait still resolve.
+    """
+    import time as _time
+    from databricks.sdk.service.sql import StatementState
+    w = workspace_client(profile)
     try:
-        d = json.loads(out)
-        return d.get("status", {}).get("state", "UNKNOWN"), d.get("result", {}).get("data_array")
-    except json.JSONDecodeError:
-        return "PARSE_ERROR", None
+        resp = w.statement_execution.execute_statement(
+            warehouse_id=warehouse_id, statement=statement, wait_timeout="30s")
+        sid = resp.statement_id
+        deadline = _time.time() + 600
+        while (sid and resp.status and resp.status.state in
+               (StatementState.PENDING, StatementState.RUNNING)
+               and _time.time() < deadline):
+            _time.sleep(3)
+            resp = w.statement_execution.get_statement(sid)
+    except Exception:  # noqa: BLE001
+        return "CLI_ERROR", None
+    state = resp.status.state.value if resp.status and resp.status.state else "UNKNOWN"
+    data = resp.result.data_array if resp.result else None
+    return state, data
 
 
 def first_warehouse_id(profile):
-    code, out, _ = run_cli(["warehouses", "list", "-o", "json"], profile)
-    if code != 0:
-        return None
     try:
-        whs = json.loads(out)
-        if isinstance(whs, dict):
-            whs = whs.get("warehouses", [])
-        return whs[0]["id"] if whs else None
-    except (json.JSONDecodeError, KeyError, IndexError):
+        whs = list(workspace_client(profile).warehouses.list())
+    except Exception:  # noqa: BLE001
         return None
+    if not whs:
+        return None
+    for wh in whs:
+        if getattr(wh, "enable_serverless_compute", False):
+            return wh.id
+    return whs[0].id
 
 
 def region_of(profile):

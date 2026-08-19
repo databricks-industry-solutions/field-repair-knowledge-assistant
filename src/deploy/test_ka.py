@@ -35,9 +35,9 @@ Design notes (the resolved spike facts from 04-KA-BUILD.md — read at runtime):
     terminology answers (KA-03/04).
 
 Usage:
-    python3 agents/test_ka.py --profile serverless-stable
-    python3 agents/test_ka.py --profile serverless-stable --only KA-01,KA-02
-    python3 agents/test_ka.py --profile serverless-stable --no-report
+    python3 src/deploy/test_ka.py --profile serverless-stable
+    python3 src/deploy/test_ka.py --profile serverless-stable --only KA-01,KA-02
+    python3 src/deploy/test_ka.py --profile serverless-stable --no-report
 """
 
 import argparse
@@ -361,7 +361,7 @@ def build_report(host, verdicts):
         "(id `97df484b-f50a-4042-ad2f-0be5a3ce6779`)",
         f"**Corpus table:** `{TICKETS}`",
         f"**Generated:** {ts}",
-        f"**Harness:** `agents/test_ka.py` (re-runnable; exits non-zero on any FAIL)",
+        f"**Harness:** `src/deploy/test_ka.py` (re-runnable; exits non-zero on any FAIL)",
         "",
         "This proves the KA STANDALONE (D-09, no Supervisor): the deployed "
         "endpoint is queried directly and every citation is resolved against "

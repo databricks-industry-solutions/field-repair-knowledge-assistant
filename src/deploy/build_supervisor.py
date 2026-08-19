@@ -8,19 +8,19 @@ Phase-4.1-enriched tools and proves the whole pipe end-to-end:
   Tool 1 (KA)      — tile 97df484b-f50a-4042-ad2f-0be5a3ce6779
                      (endpoint ka-97df484b-endpoint, task agent/v1/responses),
                      semantic similar-case retrieval over enriched ka_content.
-  Tool 2 (Genie)   — space_id 01f185f0ce8e15cd9a92d86b3171c52e over the curated
-                     rd_tasks_gold_analytics VIEW (counts/sorts/expert/priority).
-  Tool 3 (glossary)— serverless_stable_l26d62_catalog.fis_knowledge_agent.glossary_lookup
+  Tool 2 (Genie)   — the DAB-deployed Genie space (resources/genie.yml, resolved
+                     at runtime by title) over the curated analytics view
+                     (counts/sorts/expert/priority).
+  Tool 3 (glossary)— <catalog>.<schema>.glossary_lookup
                      (term_query STRING) -> TABLE(term, definition, category).
                      Terminology is resolved AT the supervisor (4.1 architecture).
 
-What this script does (idempotent, host-gated — mirrors build_genie.py /
-build_ka.py):
+What this script does (idempotent, host-gated — mirrors build_ka.py):
 
   Task 1 — create/update the 3-tool MAS:
     * Step 0: preflight.assert_target_host — refuse any workspace but l26d62.
     * find-by-display_name (GET /api/2.1/supervisor-agents) → update else create.
-    * Author the create-request from agents/supervisor_config.json (human-editable
+    * Author the create-request from src/deploy/supervisor_config.json (human-editable
       display_name + 3 tool descriptions + routing/synthesis instructions +
       examples[]).
     * Create-request wire shape is a SPIKE (05-RESEARCH Open Q1): the confirmed
@@ -47,9 +47,9 @@ build_ka.py):
       to 05-SUPERVISOR-BUILD.md.
 
 Usage:
-    python3 agents/build_supervisor.py --profile serverless-stable
-    python3 agents/build_supervisor.py --profile serverless-stable --grants-only
-    python3 agents/build_supervisor.py --profile serverless-stable --skip-smoke
+    python3 src/deploy/build_supervisor.py --profile serverless-stable
+    python3 src/deploy/build_supervisor.py --profile serverless-stable --grants-only
+    python3 src/deploy/build_supervisor.py --profile serverless-stable --skip-smoke
 """
 
 import argparse
@@ -67,8 +67,12 @@ from pathlib import Path
 # a per-call timeout; api_json/smoke_test need longer ceilings for provisioning
 # + agent invocation. The host-gate/run_sql/resolve_principal helpers are reused
 # verbatim from preflight (they use preflight's own run_cli internally).
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "preflight"))
+# Serverless spark_python_task execs this file with no `__file__` and CWD = the
+# script's own dir; fall back to CWD so paths resolve there and locally. preflight.py
+# and env.py live in THIS dir (the old REPO_ROOT/"preflight" path no longer exists).
+_HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
+REPO_ROOT = _HERE.parent
+sys.path.insert(0, str(_HERE))
 from preflight import (  # noqa: E402
     assert_target_host,
     run_sql,
@@ -77,7 +81,22 @@ from preflight import (  # noqa: E402
 
 
 def run_cli(args, profile, timeout=180):
-    """Run a databricks CLI command, return (exit_code, stdout, stderr)."""
+    """Run a databricks operation, return (exit_code, stdout, stderr).
+
+    Routes `api` calls + `auth env` through the SDK (ambient auth) so this works on
+    serverless job compute; anything else falls back to the subprocess CLI (local).
+    """
+    import preflight as _pf
+    try:
+        if args and args[0] == "api":
+            method, path = args[1], args[2]
+            body = json.loads(args[args.index("--json") + 1]) if "--json" in args else None
+            return _pf.api_do(method, path, profile, body)
+        if args[:2] == ["auth", "env"]:
+            host = _pf.workspace_client(profile).config.host or ""
+            return 0, json.dumps({"env": {"DATABRICKS_HOST": host}}), ""
+    except Exception as e:  # noqa: BLE001
+        return 1, "", str(e)
     cmd = ["databricks", *args, "--profile", profile]
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -95,16 +114,25 @@ import env as _env  # noqa: E402  (preflight/ already on sys.path above)
 WAREHOUSE_ID = _env.WAREHOUSE_ID
 CATALOG = _env.CATALOG
 SCHEMA = _env.SCHEMA
+# Module-level FQ so _apply_target's old_fq rewrite catches GLOSSARY_FN /
+# ANALYTICS_VIEW (both built from CATALOG.SCHEMA below). Without this, old_fq is
+# None and the FQN-rewrite loop no-ops, leaving the grants/probes pointed at the
+# default demo schema on a --catalog/--schema retarget (dev-isolation false-fail).
+FQ = f"{CATALOG}.{SCHEMA}"
 
 # The three live tools (05-RESEARCH Runtime State Inventory, live-confirmed 2026-07-28).
 KA_TILE_ID = "97df484b-f50a-4042-ad2f-0be5a3ce6779"
 KA_ENDPOINT = "ka-97df484b-endpoint"
-GENIE_SPACE_ID = "01f185f0ce8e15cd9a92d86b3171c52e"
+KA_ID = ""  # KA knowledge_assistant_id, discovered in main() from the KA display name
+# The Genie space is DAB-deployed (resources/genie.yml). Its id is generated at
+# deploy time, so it is resolved at runtime BY TITLE rather than hardcoded.
+GENIE_SPACE_TITLE = "FIS R&D Tickets (serving)"
+GENIE_SPACE_ID = ""  # filled in main() from the DAB-deployed space (by title)
 GLOSSARY_FN = f"{CATALOG}.{SCHEMA}.glossary_lookup"
 ANALYTICS_VIEW = f"{CATALOG}.{SCHEMA}.rd_tasks_gold_analytics"
 
 MAS_API = "/api/2.1/supervisor-agents"
-CONFIG_PATH = Path(__file__).resolve().parent / "supervisor_config.json"
+CONFIG_PATH = _HERE / "supervisor_config.json"
 BUILD_DOC = (
     REPO_ROOT
     / ".planning/phases/05-multi-agent-supervisor/05-SUPERVISOR-BUILD.md"
@@ -142,6 +170,35 @@ def api_json(method, path, profile, body=None, timeout=180):
 
 
 # --- Task 1: create/update the 3-tool MAS -----------------------------------
+
+def resolve_genie_space_id(profile, title):
+    """space_id of the DAB-deployed Genie space with this exact title, else None."""
+    code, parsed, _, _ = api_json("get", "/api/2.0/genie/spaces", profile)
+    if code != 0 or not isinstance(parsed, dict):
+        return None
+    for s in parsed.get("spaces", []) or []:
+        if (s.get("title") or "") == title:
+            return s.get("space_id")
+    return None
+
+
+def resolve_ka(profile, display_name):
+    """(knowledge_assistant_id, endpoint_name) of the KA with this display name.
+
+    The MAS must route to the KA it is PAIRED with, discovered at build time — never a
+    hardcoded tile/endpoint (which is wrong for any fresh or dev/isolated deploy). The
+    knowledge_assistant tool binds by the KA *id* (see reconcile_tools), so we resolve
+    both the id and the endpoint (the endpoint is still used for the CAN QUERY grant).
+    """
+    code, parsed, _, _ = api_json("get", "/api/2.1/knowledge-assistants", profile)
+    if code != 0 or not isinstance(parsed, dict):
+        return None, None
+    for ka in parsed.get("knowledge_assistants", []) or []:
+        if (ka.get("display_name") or "") == display_name:
+            return (ka.get("knowledge_assistant_id") or ka.get("id"),
+                    ka.get("endpoint_name"))
+    return None, None
+
 
 def load_config():
     cfg = json.loads(CONFIG_PATH.read_text())
@@ -191,41 +248,106 @@ def find_existing_mas(profile, display_name):
     return None, None
 
 
-def _agents_body(cfg, ka_by_endpoint=False):
-    """Build the agents[] list from config. KA by tile id (default) or endpoint."""
-    agents = []
-    for a in cfg["agents"]:
-        entry = {"name": a["name"], "description": a["description"]}
-        if "ka_tile_id" in a:
-            if ka_by_endpoint:
-                entry["endpoint_name"] = KA_ENDPOINT
-            else:
-                entry["ka_tile_id"] = a["ka_tile_id"]
-        elif "genie_space_id" in a:
-            entry["genie_space_id"] = a["genie_space_id"]
-        elif "uc_function_name" in a:
-            entry["uc_function_name"] = a["uc_function_name"]
-        agents.append(entry)
-    return agents
+def _create_body(cfg):
+    """The TOP-LEVEL create body (wire shape live-confirmed 2026-08-19).
 
-
-def _create_body(cfg, ka_by_endpoint=False):
-    """The TOP-LEVEL create body (wire shape live-confirmed 2026-07-29).
-
-    NOTE (spike result): the accepted shape is TOP-LEVEL — NOT nested under a
-    `supervisor_agent` key as 05-RESEARCH assumed. The misleading
-    'supervisor_agent.display_name is required' error simply means the server
-    read no top-level display_name.
+    The supervisor is created with ONLY {display_name, description, instructions}.
+    Tools and examples are NOT accepted inline on the create body — they are
+    separate sub-resources (POST .../tools, POST .../examples) attached after the
+    agent exists (see reconcile_tools / reconcile_examples). An earlier revision
+    sent an inline `agents[]` list; the current API silently ignores it, so the
+    supervisor came up with ZERO bound tools ("Error: Tool '<x>' not found" at
+    invocation) — the exact failure this rewrite fixes.
     """
-    body = {
+    return {
         "display_name": cfg["display_name"],
         "description": cfg["description"],
         "instructions": cfg["instructions"],
-        "agents": _agents_body(cfg, ka_by_endpoint=ka_by_endpoint),
     }
-    if cfg.get("examples"):
-        body["examples"] = cfg["examples"]
-    return body
+
+
+def _tool_specs(cfg):
+    """(tool_id, request_body) per configured agent, in the CURRENT /tools wire shape.
+
+    Each tool is POSTed to `.../tools?tool_id=<tool_id>` with a body of
+    {tool_type, description, <type-block>}. The type-block identifier field differs
+    by tool_type (knowledge_assistant_id / genie_space.id / uc_function.name). The KA
+    binds by its DISCOVERED id (KA_ID) and the Genie/glossary by their retargeted
+    identifiers — never a hardcoded tile, which is wrong for a fresh/dev deploy.
+    """
+    specs = []
+    for a in cfg["agents"]:
+        body = {"description": a["description"]}
+        if "ka_tile_id" in a:
+            body["tool_type"] = "knowledge_assistant"
+            body["knowledge_assistant"] = {"knowledge_assistant_id": KA_ID}
+        elif "genie_space_id" in a:
+            body["tool_type"] = "genie_space"
+            body["genie_space"] = {"id": GENIE_SPACE_ID}
+        elif "uc_function_name" in a:
+            body["tool_type"] = "uc_function"
+            body["uc_function"] = {"name": GLOSSARY_FN}
+        else:
+            continue
+        specs.append((a["name"], body))
+    return specs
+
+
+def list_tool_ids(profile, mid):
+    """Set of tool_id already attached to this MAS (GET .../tools -> {"tools":[...]})."""
+    code, parsed, _, _ = api_json("get", f"{MAS_API}/{mid}/tools", profile)
+    if code != 0 or not isinstance(parsed, dict):
+        return set()
+    return {t.get("tool_id") for t in (parsed.get("tools") or [])
+            if isinstance(t, dict) and t.get("tool_id")}
+
+
+def reconcile_tools(profile, mid, cfg):
+    """Attach every configured tool that is not already present. Returns a log.
+
+    Idempotent: existing tool_ids are left untouched (a changed binding/description
+    needs --recreate, since tools, like agents historically, are effectively
+    create-time). Tool bindings determine whether the supervisor can actually CALL
+    its agents, so a failure here is fatal to the build.
+    """
+    existing = list_tool_ids(profile, mid)
+    log = []
+    for tool_id, body in _tool_specs(cfg):
+        if tool_id in existing:
+            log.append((tool_id, body.get("tool_type"), True, "exists"))
+            continue
+        code, _, out, err = api_json(
+            "post", f"{MAS_API}/{mid}/tools?tool_id={tool_id}", profile, body=body)
+        ok = code == 0
+        log.append((tool_id, body.get("tool_type"), ok,
+                    "created" if ok else (err or out)[:200]))
+    return log
+
+
+def reconcile_examples(profile, mid, cfg):
+    """Attach the configured routing examples if the MAS has none yet (idempotent).
+
+    Examples are a sub-resource (POST .../examples) taking {question, guidelines[]}.
+    The config stores a single `guideline` string per example (legacy inline shape);
+    it is wrapped into the `guidelines` array the current API expects.
+    """
+    code, parsed, _, _ = api_json("get", f"{MAS_API}/{mid}/examples", profile)
+    have = len(parsed.get("examples") or []) if isinstance(parsed, dict) else 0
+    if have:
+        return have  # already seeded — leave as-is
+    made = 0
+    for ex in cfg.get("examples", []) or []:
+        q = ex.get("question")
+        guidelines = ex.get("guidelines") or (
+            [ex["guideline"]] if ex.get("guideline") else [])
+        if not q or not guidelines:
+            continue
+        code, _, _, _ = api_json(
+            "post", f"{MAS_API}/{mid}/examples", profile,
+            body={"question": q, "guidelines": guidelines})
+        if code == 0:
+            made += 1
+    return made
 
 
 def create_or_update_mas(profile, cfg, recreate=False):
@@ -240,13 +362,13 @@ def create_or_update_mas(profile, cfg, recreate=False):
         fields on re-run; changing the tool SET or a tool DESCRIPTION requires a
         recreate (delete + create). Pass recreate=True (or --recreate) for that.
 
-    Incremental-probe protocol (Open Q1, KA descriptor): try KA by tile id first;
-    if the proto rejects the tile-id descriptor, retry with endpoint_name.
+    Tools + examples are attached AFTER this returns (reconcile_tools /
+    reconcile_examples) — they are sub-resources, not part of the create body.
     """
     mid, existing = find_existing_mas(profile, cfg["display_name"])
 
     if mid and recreate:
-        print(f"[T1] --recreate: deleting existing MAS {mid} to re-apply agents...")
+        print(f"[T1] --recreate: deleting existing MAS {mid} to re-apply tools...")
         code, _, out, err = api_json("delete", f"{MAS_API}/{mid}", profile)
         if code != 0:
             print(f"FATAL: could not delete MAS {mid} for recreate: {err or out}",
@@ -255,34 +377,27 @@ def create_or_update_mas(profile, cfg, recreate=False):
         mid = None
 
     if mid:
-        # Update the editable fields in place (agents are immutable post-create).
-        body = _create_body(cfg)  # full body for the record; mask limits what applies
+        # Update the editable fields in place (tools are attached separately below).
+        body = _create_body(cfg)
         mask = "display_name,description,instructions"
         code, parsed, out, err = api_json(
             "patch", f"{MAS_API}/{mid}?update_mask={mask}", profile, body=body)
         if code == 0:
             print(f"[T1] Updated MAS {mid} (editable fields via update_mask={mask}). "
-                  "Tool set/descriptions are create-time — use --recreate to change them.")
+                  "Tool set is reconciled separately — use --recreate to change bindings.")
             return mid, body, "updated"
         print(f"FATAL: MAS update (PATCH) failed: {err or out}", file=sys.stderr)
         sys.exit(5)
 
-    # Create fresh — probe KA descriptor (tile id first, endpoint fallback).
-    for ka_by_endpoint in (False, True):
-        body = _create_body(cfg, ka_by_endpoint=ka_by_endpoint)
-        code, parsed, out, err = api_json("post", MAS_API, profile, body=body)
-        if code == 0:
-            new_id = _extract_id(parsed)
-            print(f"[T1] Created MAS id={new_id} (ka_by_endpoint={ka_by_endpoint}).")
-            return new_id, body, "created"
-        msg = (err or out or "").lower()
-        print(f"[T1] create attempt (ka_by_endpoint={ka_by_endpoint}) rejected: "
-              f"{(err or out)[:300]}", file=sys.stderr)
-        if not ("ka_tile_id" in msg or "tile" in msg or "endpoint" in msg):
-            break
+    # Create fresh — bare {display_name, description, instructions}; tools follow.
+    body = _create_body(cfg)
+    code, parsed, out, err = api_json("post", MAS_API, profile, body=body)
+    if code == 0:
+        new_id = _extract_id(parsed)
+        print(f"[T1] Created MAS id={new_id}.")
+        return new_id, body, "created"
 
-    print("FATAL: could not create the MAS with either KA descriptor shape. "
-          "Inspect the error above and adjust _agents_body().", file=sys.stderr)
+    print(f"FATAL: could not create the MAS: {(err or out)[:300]}", file=sys.stderr)
     sys.exit(5)
 
 
@@ -586,7 +701,7 @@ def write_build_doc(host, mid, endpoint, ep_state, task, accepted_body,
 
 **Generated:** {ts}
 **Workspace:** `{host}`
-**Built by:** `agents/build_supervisor.py` (Phase 5, Plan 01)
+**Built by:** `src/deploy/build_supervisor.py` (Phase 5, Plan 01)
 
 Single source of truth for the deployed MAS: id, endpoint, accepted create-request
 wire shape, invocation contract, the 3-tool grant record, and the A1 supervisor-LLM
@@ -604,31 +719,36 @@ pin finding. Plan 05-02 (routing matrix) consumes these identifiers.
 
 ## Registered Tools (exactly 3)
 
-| Tool | Binding | id / name |
-|------|---------|-----------|
-| knowledge_assistant | ka_tile_id (endpoint fallback) | `{KA_TILE_ID}` / `{KA_ENDPOINT}` |
-| ticket_analytics_genie | genie_space_id | `{GENIE_SPACE_ID}` |
-| glossary_lookup | uc_function_name | `{GLOSSARY_FN}` |
+Attached as `/tools` sub-resources (tool_type + type-block), not inline on the
+create body:
 
-## Accepted Create-Request Wire Shape (Open Q1 — verbatim, SPIKE RESOLVED)
+| Tool | tool_type | id / name |
+|------|-----------|-----------|
+| knowledge_assistant | knowledge_assistant | `{KA_ID}` (endpoint `{KA_ENDPOINT}`) |
+| ticket_analytics_genie | genie_space | `{GENIE_SPACE_ID}` |
+| glossary_lookup | uc_function | `{GLOSSARY_FN}` |
 
-**Correction to 05-RESEARCH:** the accepted body is **TOP-LEVEL** — NOT nested
-under a `supervisor_agent` key. `POST {MAS_API}` takes
-`{{display_name, description, instructions, agents[], examples[]}}` directly. The
-misleading `Field 'supervisor_agent.display_name' is required` error just means the
-server read no top-level `display_name`.
+## Accepted Create-Request Wire Shape (live-confirmed 2026-08-19)
 
-Per-agent descriptor keys accepted live: `ka_tile_id`, `genie_space_id`,
-`uc_function_name` (each with `name` + `description`). `examples[]` accepted.
+The create body is **TOP-LEVEL and tool-free**: `POST {MAS_API}` takes ONLY
+`{{display_name, description, instructions}}`. An inline `agents[]` (or `tools[]` /
+`examples[]`) on the create body is **silently ignored** — the supervisor comes up
+with zero bound tools and every invocation returns `Error: Tool '<x>' not found`.
+
+Tools are attached as **sub-resources** AFTER create:
+`POST {MAS_API}/{{id}}/tools?tool_id=<name>` with `{{tool_type, description,
+<type-block>}}`, where the type-block is `knowledge_assistant.knowledge_assistant_id`,
+`genie_space.id`, or `uc_function.name`. Examples likewise:
+`POST {MAS_API}/{{id}}/examples` with `{{question, guidelines[]}}` (note: `guidelines`
+is an array — the legacy single `guideline` string is wrapped).
 
 Response keys: `supervisor_agent_id`, `name` (`supervisor-agents/{{id}}`),
 `endpoint_name` (`mas-<frag>-endpoint`), `experiment_id`.
 
 **UPDATE semantics:** PATCH uses a `?update_mask=` query param and edits ONLY
-`{{display_name, description, instructions}}`. `agents` are **create-time only**
-(PATCH rejects them: "Unsupported update_mask fields: agents"), and GET does NOT
-echo `agents` back (MAS config is opaque via the API — matches the reference note).
-Changing the tool set or a tool description requires `--recreate` (delete + create).
+`{{display_name, description, instructions}}`; GET does NOT echo tools back. Tools are
+reconciled idempotently (attach-if-missing); changing a tool's binding or description
+requires `--recreate` (delete + recreate the MAS and re-attach its tools).
 
 ```json
 {json.dumps(accepted_body, indent=2)}
@@ -672,8 +792,8 @@ Least-privilege grants issued for BOTH the demo principal AND the MAS SP
 ## Reproduce
 
 ```bash
-python3 agents/build_supervisor.py --profile serverless-stable            # full build
-python3 agents/build_supervisor.py --profile serverless-stable --grants-only  # re-issue/assert grants
+python3 src/deploy/build_supervisor.py --profile serverless-stable            # full build
+python3 src/deploy/build_supervisor.py --profile serverless-stable --grants-only  # re-issue/assert grants
 ```
 Idempotent: reuses the existing MAS by display_name (find-by-display_name).
 """
@@ -693,7 +813,6 @@ def _apply_target(args):
     Module-level table names are f-strings evaluated at import, so they are
     recomputed here rather than just updating CATALOG.
     """
-    import re as _re
     g = globals()
     cat, sch, fq, wh = _env.apply_target_args(args)
     old_fq = g.get("FQ")
@@ -719,6 +838,15 @@ def main():
     # are the only retargeting channel available to the bundle.
     _env.add_target_args(ap)
     ap.add_argument("--profile", default="serverless-stable")
+    ap.add_argument("--genie-space-id", default="",
+                    help="Genie space id to route to, injected from the DAB "
+                         "genie_spaces resource (${resources.genie_spaces."
+                         "fis_rnd_serving.id}). Robust to name-prefixing and to "
+                         "duplicate titles across targets. If empty, fall back to "
+                         "resolving the space BY TITLE.")
+    ap.add_argument("--agent-suffix", default="",
+                    help="Suffix for the KA display name to discover AND the MAS display "
+                         "name (dev isolation, e.g. '-dev'). Empty = shared demo identity.")
     ap.add_argument("--grants-only", action="store_true",
                     help="Re-issue + assert the 3 grants on the existing MAS "
                          "(no create/update, no poll).")
@@ -737,6 +865,43 @@ def main():
     print(f"Host gate OK: {host}")
 
     cfg = load_config()
+
+    # Discover the KA serving endpoint from its (possibly suffixed) display name, so
+    # the MAS routes to the KA it is paired with — never a hardcoded tile/endpoint.
+    global KA_ENDPOINT, KA_ID
+    ka_display = "fis-rnd-knowledge-assistant-serving" + (args.agent_suffix or "")
+    KA_ID, KA_ENDPOINT = resolve_ka(args.profile, ka_display)
+    if not KA_ID or not KA_ENDPOINT:
+        print(f"FATAL: Knowledge Assistant '{ka_display}' not found — run the "
+              "serving_agents (KA) build first with the same --agent-suffix.",
+              file=sys.stderr)
+        sys.exit(4)
+    print(f"KA discovered from '{ka_display}': id={KA_ID} endpoint={KA_ENDPOINT}")
+
+    # Suffix the MAS display name (dev isolation) and retarget the glossary function to
+    # THIS schema (GLOSSARY_FN was rebound to <catalog>.<schema>.glossary_lookup above).
+    if args.agent_suffix:
+        cfg["display_name"] = cfg["display_name"] + args.agent_suffix
+    for a in cfg.get("agents", []):
+        if "uc_function_name" in a:
+            a["uc_function_name"] = GLOSSARY_FN
+
+    # Genie is DAB-deployed; resolve its space_id by title and inject it into the
+    # config so the MAS routes to the DAB space, never a hardcoded id.
+    global GENIE_SPACE_ID
+    GENIE_SPACE_ID = args.genie_space_id or resolve_genie_space_id(
+        args.profile, GENIE_SPACE_TITLE)
+    if not GENIE_SPACE_ID:
+        print(f"FATAL: DAB Genie space not found (id flag empty and no space "
+              f"titled '{GENIE_SPACE_TITLE}') — deploy the bundle (genie_spaces "
+              "resource) before building the supervisor.", file=sys.stderr)
+        sys.exit(4)
+    for a in cfg.get("agents", []):
+        if "genie_space_id" in a:
+            a["genie_space_id"] = GENIE_SPACE_ID
+    _src = "id flag" if args.genie_space_id else f"by title '{GENIE_SPACE_TITLE}'"
+    print(f"Genie space (DAB, {_src}): {GENIE_SPACE_ID}")
+
     demo_principal = resolve_principal(args.profile)
     print(f"Demo principal: {demo_principal}")
 
@@ -762,13 +927,27 @@ def main():
         print("Grants re-issued + asserted.")
         return
 
-    # Task 1 — create/update + poll to ONLINE.
+    # Task 1 — create/update, attach tools + examples, then poll to ONLINE.
     mid, accepted_body, operation = create_or_update_mas(
         args.profile, cfg, recreate=args.recreate)
     if not mid:
         print("FATAL: no MAS id returned.", file=sys.stderr)
         sys.exit(5)
     print(f"[T1] MAS {operation}: id={mid}")
+
+    # Attach the 3 tools as sub-resources BEFORE polling, so the endpoint provisions
+    # with its tools bound (an inline agents[] on the create body is ignored by the
+    # current API — that left the MAS with zero callable tools).
+    tool_log = reconcile_tools(args.profile, mid, cfg)
+    for tool_id, ttype, ok, detail in tool_log:
+        print(f"[T1] tool {tool_id} ({ttype}): {'OK' if ok else 'FAIL'} — {detail}")
+    if not all(ok for _, _, ok, _ in tool_log) or len(tool_log) != 3:
+        print("FATAL: could not attach all 3 tools — the supervisor cannot route "
+              "without them. See the FAIL detail above.", file=sys.stderr)
+        sys.exit(5)
+    n_examples = reconcile_examples(args.profile, mid, cfg)
+    print(f"[T1] routing examples present: {n_examples}")
+
     endpoint, ep_state, task, online = poll_online(args.profile, mid)
 
     # A1 finding: did the create body accept / expose a supervisor-LLM/model field?

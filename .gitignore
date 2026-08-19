@@ -12,8 +12,15 @@ frontend/tsconfig.tsbuildinfo
 # Databricks bundle state
 .databricks/
 
+# Rendered Genie space payload — build artifact from genie/genie_space.template.json
+# (produced by src/deploy/render_genie.py; the template is the tracked source of truth).
+genie/genie_space.json
+
 # OS / IDE
 .DS_Store
 *.swp
 .idea/
 .vscode/
+
+# Private eval answer key — must never be committed (see eval/prompts_loader.py)
+data/servicenow/Prompts.md

@@ -1,42 +1,53 @@
 # The data pipeline, in dependency order.
 #
-# Each task is one of the existing, proven build scripts. They are NOT rewritten
-# for the bundle: they already drive SQL through the statements API and are
-# idempotent (content_hash gating, MERGE on number, CREATE OR REPLACE views), so
-# re-running the job is safe and cheap.
+# Every stage is a JOB task. bronze/silver/glossary are spark_python_task (SQL via the
+# statement-execution API); GOLD_ENRICHMENT and SERVING are serverless notebook_task
+# notebooks (SQL via their own Spark session). There is NO Lakeflow pipeline: the KA
+# streams from rd_tasks_serving and you cannot stream from a materialized view, so the
+# serving notebook builds it as a plain Delta table (CDF on).
 #
-# RETARGETING: each task passes --catalog/--schema/--warehouse-id, which
-# preflight/env.py turns into the module globals every table name derives from.
-# Flags rather than env vars because a serverless job `environment` spec supports
-# only client/dependencies/base_environment — it has NO environment_variables
-# field (confirmed: zero occurrences in `databricks bundle schema`).
+#   parse_tickets / load_tables  — stdlib markdown parse -> rnd_tickets (bronze),
+#                                  including the appended synthetic tickets.
+#   build_silver                 — data_generation/build_silver.py shapes bronze
+#                                  into rd_tasks_silver (+ rd_task_note_entries):
+#                                  content_hash gate + location parse, CDF on. The
+#                                  silver layer is produced HERE, with the data, and
+#                                  read by the pipeline as an external source.
+#   glossary                     — mines the controlled vocabulary from bronze
+#                                  rnd_tickets, so it can be built and SME-approved
+#                                  BEFORE the pipeline's gold_enrichment reads the
+#                                  approved terms (GLO-02).
+#   enrich                       — notebook: rd_tasks_gold_enrichment via ai_query,
+#                                  incremental by a content_hash LEFT ANTI JOIN + MERGE,
+#                                  so a re-run with no new tickets does zero LLM work.
+#   serving                      — notebook: builds rd_tasks_serving as a PLAIN DELTA
+#                                  table (CDF on) — silver ⋈ rnd_tickets ⋈ enrichment ⋈
+#                                  note counts, ka_content composed — then the curated
+#                                  Genie analytics views, then verify() (incl. a
+#                                  table-type check the KA streaming attach requires).
 #
-# parse_tickets and load_tables take no flags: they read the markdown samples and
-# write via preflight's own defaults, and were not part of the parameterisation
-# pass. They still resolve through preflight/env.py, so FIS_* env vars set on a
-# local run reach them; a retargeted BUNDLE run would still write bronze to the
-# default catalog. Left as-is deliberately rather than half-parameterised.
-#
-# NOT wired as a Lakeflow pipeline: these scripts are SQL-over-REST drivers with
-# no Spark session and no streaming tables, so a `pipelines` resource would be the
-# wrong abstraction. A job with ordered tasks matches what they actually are.
+# RETARGETING: the spark_python_task steps pass --catalog/--schema/--warehouse-id
+# (preflight/env.py turns them into the module globals table names derive from). The
+# notebook steps take catalog/schema via notebook_task base_parameters (dbutils.widgets)
+# and need no warehouse — they run SQL on their own serverless notebook compute.
 
 resources:
   jobs:
     fis_data_pipeline:
       name: "[${bundle.target}] FIS data pipeline (bronze -> serving)"
       description: >-
-        parse -> load -> silver -> glossary -> enrich -> ka_content -> serving.
-        Idempotent end to end; the content_hash anti-join means a re-run with no
-        new tickets does zero LLM work.
+        parse -> load -> {silver, glossary} -> enrich (notebook) -> serving (notebook).
+        Idempotent end to end; the content_hash anti-join + MERGE means a re-run with
+        no new tickets does zero LLM work.
 
-      # Serverless compute for every task; no cluster to size or keep warm.
+      # Serverless compute for the script tasks; no cluster to size or keep warm.
       environments:
         - environment_key: serverless
           spec:
             client: "3"
             dependencies:
               - requests
+              - databricks-sdk
 
       # Fail loudly rather than leaving a half-built serving table.
       max_concurrent_runs: 1
@@ -56,15 +67,6 @@ resources:
           environment_key: serverless
           spark_python_task:
             python_file: ../src/deploy/load_tables.py
-
-        # --- silver: typed, derived columns ---
-        - task_key: silver
-          description: rd_tasks_silver — typed columns, location parts, durations.
-          depends_on:
-            - task_key: load_tables
-          environment_key: serverless
-          spark_python_task:
-            python_file: ../src/deploy/silver.py
             parameters:
               - --catalog
               - ${var.catalog}
@@ -73,11 +75,30 @@ resources:
               - --warehouse-id
               - ${var.warehouse_id}
 
-        # --- glossary: the controlled vocabulary enrichment depends on ---
+        # --- silver: shape bronze into rd_tasks_silver (+ note entries) ---
+        - task_key: build_silver
+          description: >-
+            Build rd_tasks_silver (+ rd_task_note_entries) from bronze rnd_tickets
+            (real + synthetic): content_hash gate + location parse, CDF on.
+          depends_on:
+            - task_key: load_tables
+          environment_key: serverless
+          spark_python_task:
+            python_file: ../data_generation/build_silver.py
+            parameters:
+              - --catalog
+              - ${var.catalog}
+              - --schema
+              - ${var.schema}
+              - --warehouse-id
+              - ${var.warehouse_id}
+
+        # --- glossary: the controlled vocabulary, mined from BRONZE rnd_tickets so
+        #     it is available (and approvable) before the enrich pipeline runs ---
         - task_key: glossary
           description: Build the glossary; approvals drive the enrichment enums (GLO-02).
           depends_on:
-            - task_key: silver
+            - task_key: load_tables
           environment_key: serverless
           spark_python_task:
             python_file: ../src/deploy/build_glossary.py
@@ -89,59 +110,35 @@ resources:
               - --warehouse-id
               - ${var.warehouse_id}
 
-        # --- gold: the LLM enrichment pass ---
+        # --- gold enrichment (notebook, serverless): incremental ai_query + MERGE ---
+        # Serverless notebook task = NO environment_key / cluster and NO warehouse; it runs
+        # SQL on its own Spark session. enum vocab comes from the APPROVED glossary at run
+        # time (GLO-02). ai_query only touches new/changed tickets (content_hash anti-join).
         - task_key: enrich
           description: >-
-            ai_query structured extraction -> rd_tasks_gold_enrichment. Enums come
-            from the APPROVED glossary at run time, never a hardcoded list.
+            Build rd_tasks_gold_enrichment via ai_query, incremental by a content_hash
+            LEFT ANTI JOIN + MERGE. Reads rd_tasks_silver + glossary.
           depends_on:
+            - task_key: build_silver
             - task_key: glossary
-          environment_key: serverless
-          spark_python_task:
-            python_file: ../src/deploy/enrich.py
-            parameters:
-              - --catalog
-              - ${var.catalog}
-              - --schema
-              - ${var.schema}
-              - --warehouse-id
-              - ${var.warehouse_id}
+          notebook_task:
+            notebook_path: ../src/notebooks/enrich.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
 
-        # --- KA content on rnd_tickets (kept for the ORIGINAL KA) ---
-        - task_key: ka_content
+        # --- serving table (notebook, serverless): plain Delta + CDF, analytics, verify ---
+        - task_key: serving
           description: >-
-            Compose rnd_tickets.ka_content from the gold segments, acronyms
-            expanded from the glossary.
+            Build rd_tasks_serving as a PLAIN Delta table (CDF on) so the KA can stream from
+            it; then the curated Genie analytics views; then verify() (incl. table-type check).
           depends_on:
             - task_key: enrich
-          environment_key: serverless
-          spark_python_task:
-            python_file: ../src/deploy/build_ka_content.py
-            parameters:
-              - --catalog
-              - ${var.catalog}
-              - --schema
-              - ${var.schema}
-              - --warehouse-id
-              - ${var.warehouse_id}
-
-        # --- the one table both engines read ---
-        - task_key: serving_table
-          description: >-
-            rd_tasks_serving (+ rd_tasks_serving_analytics). CDF on and a metadata
-            struct, both REQUIRED for the KA to attach. --verify runs 11 assertions.
-          depends_on:
-            - task_key: ka_content
-          environment_key: serverless
-          spark_python_task:
-            python_file: ../src/deploy/build_serving_table.py
-            parameters:
-              - --catalog
-              - ${var.catalog}
-              - --schema
-              - ${var.schema}
-              - --warehouse-id
-              - ${var.warehouse_id}
+          notebook_task:
+            notebook_path: ../src/notebooks/serving.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
 
       tags:
         project: fis-knowledge-agent

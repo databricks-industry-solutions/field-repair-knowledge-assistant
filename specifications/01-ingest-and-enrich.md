@@ -7,13 +7,24 @@ truck-screening support tickets becomes a cited, actionable agent. Every
 downstream consumer (Knowledge Assistant, Genie, Supervisor) reads **one physical
 table**, `rd_tasks_serving`.
 
-**Target:** `{{CATALOG}}.{{SCHEMA}}` (defaults `dbdemos_templates.rnd_knowledge_agent`).
+**Target:** `{{CATALOG}}.{{SCHEMA}}` — the bundle default is
+`main.troubleshooting_knowledge_agent` (`databricks.yml`); override per workspace with
+`--var catalog=… --var schema=…`.
 
-**Build shape (no SDP pipeline).** These are SQL-over-REST drivers, not Spark
-transformations: each script builds SQL strings and issues them through the SQL
-Statements API against a serverless warehouse. That is why the bundle wires them as
-ordered **job tasks** rather than a `pipelines` resource — there is no streaming
-table and no Spark session, so a Lakeflow pipeline would be the wrong abstraction.
+**Build shape.** Bronze (`parse_tickets`/`load_tables`), the silver layer
+(`data_generation/build_silver.py`), and the SME-governed `glossary` are
+SQL-over-REST job tasks. `build_silver.py` shapes bronze `rnd_tickets` (real +
+synthetic) into `rd_tasks_silver` (+ `rd_task_note_entries`) — the `content_hash`
+gate + location parse, CDF on. The **enrich chain — gold_enrichment → serving — is two
+serverless `notebook_task` notebooks** in the same job, `src/notebooks/enrich.py` and
+`src/notebooks/serving.py`; they read `rd_tasks_silver`, `glossary` and `rnd_tickets`.
+`rd_tasks_gold_enrichment` is a Delta table built **incrementally**: a `content_hash`
+LEFT ANTI JOIN selects only new/changed tickets, `ai_query` runs over just those, and a
+`MERGE` upserts by `number` — so a re-run with no new tickets does zero LLM work.
+`rd_tasks_serving` is a **plain Delta table** (CDF on), NOT a materialized view: the KA
+streams from it and streaming from an MV is unsupported. `glossary` mines from bronze
+`rnd_tickets`, not silver, so the approved vocabulary (GLO-02) is ready before the
+enrichment enum is built.
 
 **Grain:** one row per task, end to end. Bronze, silver, enrichment and the serving
 table all carry the same row count and join 1:1 on `number`. The serving-table
@@ -26,7 +37,10 @@ cannot silently inflate the corpus.
 
 `src/deploy/parse_tickets.py` → `src/deploy/load_tables.py`
 
-The source tickets are markdown, so they are parsed with plain string/regex work.
+The source ticket markdown ships with the repo under `data/servicenow/` (so the bundle
+is self-contained and the pipeline runs in any workspace); `parse_tickets.py` resolves
+that path relative to itself, overridable via `FIS_SAMPLE_DIR`. The source tickets are
+markdown, so they are parsed with plain string/regex work.
 **Do not** reach for `ai_parse_document` here: the text is already text, and OCR
 would be both slower and region-gated.
 
@@ -46,7 +60,7 @@ attach time with `missing required column '_metadata'`.
 
 ## B. Silver — typed and derived
 
-`src/deploy/silver.py`
+`data_generation/build_silver.py`
 
 Types the columns and derives what Genie needs to filter and sort: priority as an
 integer (1 = highest), `is_closed`, the location split into state / highway /
@@ -67,11 +81,15 @@ category `software`, so it must be matched in text columns, never with
 
 ## D. Gold — LLM enrichment
 
-`src/deploy/enrich.py`
+`src/notebooks/enrich.py` (+ the shared, I/O-free recipe in
+`src/notebooks/enrich_recipe.py`)
 
-One structured-extraction pass over every ticket not already enriched
-(`silver LEFT ANTI JOIN gold ON content_hash` — so a re-run with unchanged tickets
-does zero LLM work and costs nothing).
+`rd_tasks_gold_enrichment` is a Delta table built **incrementally**: a `content_hash`
+LEFT ANTI JOIN selects only silver rows not already enriched, `ai_query` runs over just
+those into a materialized stage table, and a `MERGE` upserts by `number`. A re-run with
+unchanged tickets selects zero rows, so `ai_query` makes zero model calls and the MERGE
+is skipped — zero LLM cost. (A changed ticket's `content_hash` changes, so it is picked
+up and re-enriched on the next run.)
 
 Extracts:
 
@@ -88,34 +106,39 @@ Extracts:
 Two rules that matter:
 
 1. **No hardcoded vocabulary.** The systems/vendors enums are read from
-   `glossary WHERE status='approved'` at run time and injected into the extraction
-   schema. The build refuses to run if no approved system terms exist, rather than
-   emitting an uncontrolled term list. A `--drift-guard` mode asserts the
-   enrichment's system values and the approved glossary set are identical in both
-   directions.
+   `glossary WHERE status='approved'` at update time and injected into the extraction
+   schema. The pipeline refuses to emit an uncontrolled term list, and a pipeline
+   **expectation** asserts every emitted `systems_involved` value is an approved
+   `category='system'` term — the declarative replacement for the old `--drift-guard`
+   mode (GLO-02).
 2. **Never invent content.** The model is instructed to return an empty string for
    any description part the ticket does not cover. A fabricated "customer impact"
    is worse than a blank one.
 
-**Materialize once.** The extraction output is written to a staging table before
-the MERGE. Referencing an LLM output column twice would compute — and bill — it
-twice.
-
-An alternative implementation using `ai_extract` instead of `ai_query` is included
-as a notebook; it is simpler to read (the schema is the API, and confidence scores
-come back natively on 0–1) but the two paths write the same columns.
+**Materialize once.** The `ai_query` output is materialized in a private pipeline
+table (`@dp.table`) before it is unpacked into columns. Referencing an LLM output
+column twice would compute — and bill — it twice.
 
 ## E. The one serving table
 
-`src/deploy/build_serving_table.py` → `rd_tasks_serving` + `rd_tasks_serving_analytics`
+`src/notebooks/serving.py` builds `rd_tasks_serving` (plain Delta, CDF on) then the
+curated Genie views `rd_tasks_serving_analytics` (+ the `rd_tasks_gold_analytics` compat
+alias) and runs `verify()` in-job. For a local re-check off a laptop,
+`src/deploy/build_serving_table.py --verify` runs the same serving-table assertions
+(and `--analytics-only` re-creates the views).
 
-Joins silver ⋈ enrichment ⋈ ticket text into a single physical table carrying
-everything both engines need, plus a pre-composed content column and the metadata
-struct. `TBLPROPERTIES (delta.enableChangeDataFeed = true)`.
+The `serving` notebook joins silver ⋈ enrichment ⋈ ticket text into a single physical
+table carrying everything both engines need, plus a pre-composed content column and the
+metadata struct, with `delta.enableChangeDataFeed = true` set as a table property.
 
-**It must be a TABLE, not a view.** A view cannot back a Knowledge Assistant:
-attaching one fails with *"must either be a streaming table or have Change Data
-Feed enabled"*, and CDF cannot be set on a view.
+**It must be a plain Delta TABLE — not a view, and not a materialized view.** The KA
+sync performs a *streaming* read of its source, so the source has to be streamable: a
+plain Delta table (with CDF) or a streaming table. A plain view cannot back a KA at all,
+and a **materialized view fails too** — streaming from an MV raises
+`STREAMING_FROM_MATERIALIZED_VIEW` *even with CDF enabled* (CDF exposes the change feed
+but does not make an MV a streamable source). That is why the serving table is built by a
+job notebook as `CREATE OR REPLACE TABLE … TBLPROPERTIES(delta.enableChangeDataFeed=true)`
+rather than as a Lakeflow pipeline dataset, whose natural output for this join is an MV.
 
 The content column is composed here rather than left to the agent because
 `file_col` accepts **exactly one** column (`Array must have size 1, but has size 2`).
