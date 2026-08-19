@@ -40,3 +40,14 @@ genie/genie_space.json
 
 # Private eval answer key — must never be committed (see eval/prompts_loader.py)
 data/servicenow/Prompts.md
+
+# Additional ignores (from the industry-solutions scaffold; dist/ intentionally NOT
+# ignored — frontdoor/frontend/dist is the committed served SPA)
+*.swo
+*$py.class
+*.egg-info/
+build/
+.ipynb_checkpoints/
+Thumbs.db
+.env
+.env.local

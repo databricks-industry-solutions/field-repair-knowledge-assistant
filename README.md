@@ -177,7 +177,7 @@ Full sequence and gates: **`DEPLOYMENT.md`**.
 ## License
 
 © 2026 Databricks, Inc. All rights reserved. The source in this project is provided
-subject to the Databricks License (see [`LICENSE`](LICENSE)). All included or referenced
+subject to the Databricks License (see [`LICENSE.md`](LICENSE.md)). All included or referenced
 third-party libraries are subject to their own licenses.
 
 ## Disclaimer
