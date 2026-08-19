@@ -316,30 +316,13 @@ describe the prior configuration and stop being valid.
 
 ---
 
-## Stage 6 — Report
+## Stage 6 — Report the run
 
-Produce a table of every gate with its **observed** result, then state plainly:
-
-**What you could NOT verify.** At minimum this includes:
-
-- **The app UI.** `curl` gets a 302 SSO redirect, so a human with a browser session
-  must confirm the chat renders, the progress line ticks through its stages, and
-  citation chips are clickable.
-- Anything you skipped, with the reason.
-
-Then ask the human for the two things only they can do:
-
-1. Click through the front door and confirm the four demo acts in `README.md`.
-2. Capture `template_screenshot.png` (still missing — every reference template
-   ships one, ~180KB). Front-door chat mid-answer with citation chips visible; that
-   image is what sells the demo in the catalog list. Do not fabricate it.
-
-### Placeholders to confirm before submitting
-
-- `manifest.json` leaves `customer` empty — correct for a generic template. Set it
-  only for an account-specific variant.
-- The `specifications/` files use `{{CATALOG}}` / `{{SCHEMA}}`, matching the
-  reference-template convention. Leave them as placeholders.
+Produce a table of every gate with its **observed** result, and state plainly what you
+could **not** verify. At minimum, the app UI needs a human: `curl` gets a 302 SSO
+redirect, so a person with a browser session must confirm the chat renders, the progress
+line ticks through its stages, the citation chips are clickable, and the four demo acts in
+`README.md` all work. Note anything you skipped, with the reason.
 
 ---
 

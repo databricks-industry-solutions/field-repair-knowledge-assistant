@@ -174,4 +174,16 @@ Full sequence and gates: **`DEPLOYMENT.md`**.
 
 ---
 
-Submission checklist and remaining placeholders: see `DEPLOYMENT.md` § Report.
+## License
+
+© 2026 Databricks, Inc. All rights reserved. The source in this project is provided
+subject to the Databricks License (see [`LICENSE`](LICENSE)). All included or referenced
+third-party libraries are subject to their own licenses.
+
+## Disclaimer
+
+This project and its contents are provided **as-is**, for demonstration purposes only, and
+are **not** formally supported by Databricks under any Service Level Agreements. It is
+intended as a solution accelerator you adapt to your own data and workspace; deploy and run
+it at your own risk. Nothing here constitutes a commitment to deliver any feature or
+functionality.
