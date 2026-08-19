@@ -5,26 +5,26 @@ Host-asserted deploy driver for the Field Repair front-door Databricks App (Phas
 Deploys the FastAPI + React front door (frontdoor/) as a Databricks App, binds the
 `serving-endpoint` resource → the warm MAS `the MAS endpoint` (CAN_QUERY, auto-granted
 to the app SP on deploy), and enables OBO user authorization with the confirmed serving
-scope (`serving.serving-endpoints`, 06-PREFLIGHT). The end user's `x-forwarded-access-token`
+scope. The end user's `x-forwarded-access-token`
 is what actually invokes the MAS (server-side, 06-03) — so each user needs their own
-CAN_QUERY on the endpoint (RESEARCH Pitfall 3).
+CAN_QUERY on the endpoint.
 
 Deploy sequence
 ---------------
-  1. Assert the target host BEFORE any workspace write (CLAUDE.md platform constraint).
+  1. Assert the target host BEFORE any workspace write (workspace host constraint).
   2. Create the app if it does not exist (idempotent; reuse `rkb-frontdoor` by name).
   3. Stage a clean upload tree: backend + app.yaml + requirements.txt + frontend/dist ONLY
      (EXCLUDE node_modules / .venv / frontend/src / tests / __pycache__ — 4-deployment.md).
   4. Import the staged tree into the workspace source path and `databricks apps deploy`.
   5. Bind the `serving-endpoint` resource (CAN_QUERY) + set `user_api_scopes` via
      `databricks apps create-update <APP> --json @update.json` — READ the app's current
-     resources first and MERGE (update_mask replaces the listed field wholesale — Pitfall 6).
+     resources first and MERGE.
   6. Redeploy so the valueFrom + scopes take effect.
   7. Verify via `databricks apps get`: state RUNNING, serving-endpoint bound, serving scope set.
 
 Guardrails
 ----------
-  * NEVER `--recreate` the MAS (resets the Phase-5 per-tile SSP authorization — Pitfall 4).
+  * NEVER `--recreate` the MAS.
     This driver references `the MAS endpoint` by NAME only.
   * NEVER prints tokens. Resources/scopes are logged by name only.
   * `--dry-run` prints the planned actions and exits 0 WITHOUT mutating the workspace.
@@ -45,12 +45,12 @@ import subprocess
 import sys
 import tempfile
 
-# --- Constants (CLAUDE.md platform constraint + 06-PREFLIGHT confirmed values) ---
+# --- Constants ---
 TARGET_HOST = os.environ.get("RKB_TARGET_HOST", "")  # optional host guard (soft)
 APP_NAME = "rkb-frontdoor"
 MAS_ENDPOINT_NAME = os.environ.get("MAS_ENDPOINT_NAME", "")  # set via --mas-endpoint-name
 SERVING_RESOURCE_KEY = "serving-endpoint"            # matches app.yaml valueFrom
-SERVING_PERMISSION = "CAN_QUERY"                     # least privilege (T-06-12)
+SERVING_PERMISSION = "CAN_QUERY"                     # least privilege
 SERVING_SCOPE = "serving.serving-endpoints"          # 06-PREFLIGHT confirmed (HIGH)
 
 # Serverless spark_python_task execs this file with no `__file__` and CWD = the
@@ -154,7 +154,7 @@ def stage_tree():
 def merged_resources(app):
     """Merge the serving-endpoint resource into the app's CURRENT resources.
 
-    update_mask=resources replaces the entire array wholesale (Pitfall 6), so we
+    update_mask=resources replaces the entire array wholesale, so we
     READ the existing resources and MERGE our serving-endpoint entry, replacing any
     prior entry with the same key.
     """

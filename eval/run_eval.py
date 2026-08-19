@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Field Repair Knowledge Assistant — Phase 7 Plan 02: full on-wording MLflow GenAI eval.
+"""Field Repair Knowledge Assistant — full on-wording MLflow GenAI eval.
 
 Broadens the 07-01 thin A1 slice into the full 5-archetype on-wording evaluation
 against the deployed Multi-Agent Supervisor (`the MAS endpoint`, Responses
@@ -7,27 +7,23 @@ API): host-gate → assert the warm endpoint is READY (reuse, never re-provision
 build the claim-decomposed 5-archetype dataset from `Prompts.md` (via
 `eval/dataset.py`, `RKB_PROMPTS_PATH`, in-memory only) → `mlflow.genai.evaluate`
 with THREE separate dimension scorers plus a plausible-reasoning Guidelines
-scorer → assert three DISTINCT dimension metrics were produced (EVAL-02 "graded
-separately") and print all of their means.
+scorer → assert three DISTINCT dimension metrics were produced and print all of their means.
 
 Scorers (each → its own distinct MLflow metric key — never one blended score):
   - Correctness            (dimension 1: claim-level, vs expectations.expected_facts)
   - RelevanceToQuery       (dimension 2: does the answer address the question)
-  - citation_groundedness  (dimension 3: custom @scorer — resolves every R&DTASK
-                            cite against the live corpus + judges claim support;
-                            built-in RetrievalGroundedness cannot fire, Pitfall 5)
-  - plausible_reasoning    (Guidelines scorer carrying EVAL-01's plausible-
-                            reasoning/hedge/citation allowance)
+  - citation_groundedness
+  - plausible_reasoning
 
 Design mirrors the repo harness convention (`src/deploy/test_supervisor.py`):
   - Step 0 host-safety gate (`preflight.assert_target_host`) — refuses any
-    workspace but the reference workspace (T-07-03).
+    workspace but the reference workspace.
   - Warm-endpoint READY guard — exits non-zero rather than re-provisioning; a
-    forced re-provision would reset the per-tile SSP (T-07-08). This harness
+    forced re-provision would reset the per-tile SSP. This harness
     only ever reuses the warm endpoint by name.
   - Standalone, CLI-profile-based; `--profile` / `--only`; non-zero exit on failure.
 
-Leakage guard (T-07-01): the dataset `expected_facts` are CONCEPTUAL capability
+Leakage guard: the dataset `expected_facts` are CONCEPTUAL capability
 claims (CA → Controller Application is public in src/deploy/glossary.md); the private
 `Prompts.md` answer key is read in-memory only and never written to disk.
 
@@ -63,9 +59,9 @@ EXPERIMENT = "/Shared/rkb-eval"
 
 # The phase report the --shadow run writes (in-repo, committed). It carries
 # metrics + verdicts ONLY — never verbatim Prompts.md answer-key text or the
-# held-out real entities (T-07-01; grep-gated).
+# held-out real entities.
 RESULTS_PATH = (
-    REPO_ROOT / ".planning" / "phases" / "07-evaluation" / "07-EVAL-RESULTS.md"
+    REPO_ROOT / "reports" / "07-EVAL-RESULTS.md"
 )
 
 # Overfit tolerance: a per-dimension on-wording-minus-shadow mean drop larger than
@@ -96,7 +92,7 @@ def main():
                          "prompts (03-SHADOW-PROMPTS.md) as a second named MLflow "
                          "run with the ground-truth-free scorers, compare means "
                          "per dimension (overfit check + judge-leniency guard), "
-                         "and write 07-EVAL-RESULTS.md (EVAL-03).")
+                         "and write 07-EVAL-RESULTS.md.")
     args = ap.parse_args()
 
     only = {s.strip().upper() for s in args.only.split(",") if s.strip()}
@@ -106,7 +102,7 @@ def main():
               f"{ARCHETYPE_IDS}.", file=sys.stderr)
         sys.exit(2)
 
-    # Step 0 — never query the wrong/unauthenticated workspace (T-07-03).
+    # Step 0 — never query the wrong/unauthenticated workspace.
     host = assert_target_host(args.profile)
     principal = resolve_principal(args.profile)
     print(f"Host gate OK: {host}")
@@ -148,8 +144,7 @@ def main():
 
     # Point MLflow at the SAME profile the harness host-gated, not whatever the
     # ambient ~/.databrickscfg default is (which may be a different workspace/PAT).
-    # The profile-qualified tracking URI keeps MLflow on the reference workspace (T-07-03 —
-    # otherwise the run would silently land in the wrong workspace).
+    # The profile-qualified tracking URI keeps MLflow on the reference workspace.
     mlflow.set_tracking_uri(f"databricks://{args.profile}")
     mlflow.set_experiment(EXPERIMENT)
 
@@ -225,7 +220,7 @@ def main():
             print(f"  {k} = {metrics[k]}")
         if not keys:
             print(f"  {dim}: MISSING")
-    # plausible_reasoning is scored HERE too (EVAL-01) — surface its mean.
+    # plausible_reasoning is scored HERE too — surface its mean.
     for k in [k for k in metrics if "plausible_reasoning" in k.lower()]:
         print(f"  {k} = {metrics[k]}")
 
@@ -240,9 +235,7 @@ def main():
           f"{len(dataset)} archetype row(s) against {endpoint}.")
 
     if not args.shadow:
-        print("\n(--shadow not set — skipping the EVAL-03 overfit comparison. "
-              "Re-run with --shadow to run the blind holdout + write "
-              "07-EVAL-RESULTS.md.)")
+        print("\n")
         sys.exit(0)
 
     # --- EVAL-03: blind shadow holdout run + overfit comparison ---------------
@@ -319,7 +312,7 @@ def compare_runs(on_metrics, sh_metrics, tolerance=OVERFIT_TOLERANCE):
         for each ground-truth-free dimension present in BOTH runs;
       - overfit_flag: True if any shared dimension's (on-wording - shadow) mean
         drop exceeds `tolerance` (a material drop on the blind set = overfit);
-      - leniency_flag (Pitfall 1): True if EVERY on-wording dimension mean is
+      - leniency_flag: True if EVERY on-wording dimension mean is
         >= ~0.99 AND every shadow delta is ~0.0 (all-1.0 / no spread) — the judge
         may be rubber-stamping; escalate it rather than silently pass.
     """
@@ -352,7 +345,7 @@ def compare_runs(on_metrics, sh_metrics, tolerance=OVERFIT_TOLERANCE):
                         else "ok (within tolerance)"),
         })
 
-    # Judge-leniency guard (Pitfall 1): all on-wording dims ~1.0 AND no spread.
+    # Judge-leniency guard: all on-wording dims ~1.0 AND no spread.
     leniency = bool(on_means) and all(m >= 0.99 for m in on_means) \
         and bool(deltas) and all(abs(d) <= 0.01 for d in deltas)
     return comparison, overfit, leniency
@@ -366,7 +359,7 @@ def write_results_report(host, endpoint, on_metrics, sh_metrics, comparison,
                          overfit, leniency):
     """Write 07-EVAL-RESULTS.md (mirrors test_supervisor.write_report style).
 
-    CONFIDENTIALITY (T-07-01): this report carries METRICS + conceptual VERDICTS
+    CONFIDENTIALITY: this report carries METRICS + conceptual VERDICTS
     only — never verbatim Prompts.md answer-key sentences, and never held-out real
     ticket numbers / people. The dataset is already de-numbered (eval/dataset.py);
     this writer emits only numeric means, deltas, and capability-level verdicts.
@@ -395,7 +388,7 @@ def write_results_report(host, endpoint, on_metrics, sh_metrics, comparison,
         "",
         "Scores are LLM-judge means (managed `databricks` judge). This report "
         "carries metrics + capability-level verdicts ONLY — no verbatim answer-key "
-        "text and no held-out real entities (T-07-01).",
+        "text and no held-out real entities.",
         "",
         "## On-Wording Run — Three Separate Dimension Metrics",
         "",
@@ -412,15 +405,14 @@ def write_results_report(host, endpoint, on_metrics, sh_metrics, comparison,
         f"| Plausible reasoning / hedge | `Guidelines` | {_fmt(plaus)} |",
         "",
         "*Correctness is graded against CONCEPTUAL / SHAPE `expected_facts` "
-        "(de-numbered) — not verbatim answer-key text (T-07-01 leakage guard).*",
+        "(de-numbered) — not verbatim answer-key text.*",
         "",
         "## Shadow Run — Blind Holdout (Ground-Truth-Free)",
         "",
         "The 15 blind paraphrases from Phase 3 "
         "(`03-SHADOW-PROMPTS.md`, 3 per archetype) — authored AFTER the corpus was "
         "generated and NEVER used to generate any ticket. They are **RUN, not "
-        "regenerated** (regenerating with the answer key visible would contaminate "
-        "the holdout — T-07-05). Correctness is EXCLUDED (shadows have no ground "
+        "regenerated**. Correctness is EXCLUDED (shadows have no ground "
         "truth — it would error); only the ground-truth-free scorers run.",
         "",
         "| Dimension | Scorer | Shadow mean |",
@@ -457,7 +449,7 @@ def write_results_report(host, endpoint, on_metrics, sh_metrics, comparison,
            "— no dimension drops more than the tolerance on the blind holdout; the "
            "agent generalizes beyond the exact `Prompts.md` wording."),
         "",
-        "## Judge-Leniency Guard (Pitfall 1)",
+        "## Judge-Leniency Guard",
         "",
     ]
     if leniency:
@@ -483,7 +475,7 @@ def write_results_report(host, endpoint, on_metrics, sh_metrics, comparison,
         "",
         "Full **MemAlign** SME judge alignment (a domain-expert labeling loop to "
         "calibrate the LLM judge) is **out of scope** for this demo — the MLflow "
-        "Review App is excluded per PROJECT.md (RESEARCH Pitfall 1d). The "
+        "Review App is excluded per PROJECT.md. The "
         "leniency guard + the blind-shadow overfit cross-check are the pragmatic "
         "substitutes: they catch a rubber-stamping judge and wording-overfit "
         "without a human labeling round.",

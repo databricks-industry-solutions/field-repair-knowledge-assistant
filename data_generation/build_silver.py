@@ -60,7 +60,7 @@ def build_silver_sql():
     return f"""
 CREATE OR REPLACE TABLE {SILVER}
 TBLPROPERTIES (delta.enableChangeDataFeed = true,
-  comment = 'Silver: rnd_tickets (real + synthetic) + content_hash (ENR-01 gate) + light location parse. Key=number; CDF on so the enrich pipeline can stream it. Built by data_generation/build_silver.py.')
+  comment = 'Silver: rnd_tickets (real + synthetic) + content_hash + light location parse. Key=number; CDF on so the enrich pipeline can stream it. Built by data_generation/build_silver.py.')
 AS
 SELECT
   number,

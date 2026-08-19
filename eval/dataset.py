@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Field Repair Knowledge Assistant — Phase 7 Plan 02: claim-decomposed on-wording dataset.
+"""Field Repair Knowledge Assistant — claim-decomposed on-wording dataset.
 
 Builds the 5-archetype MLflow eval dataset (`mlflow.genai.evaluate` `data=`),
 one row per `Prompts.md` archetype. Each row carries:
@@ -8,7 +8,7 @@ one row per `Prompts.md` archetype. Each row carries:
   expectations  = {"expected_facts": [<CONCEPTUAL/SHAPE facts>],
                    "guidelines":     [<hedge / citation / plausible-reasoning rules>]}
 
-CRITICAL de-numbering rule (Pattern 2 / Assumption A4 / T-07-01/02):
+CRITICAL de-numbering rule:
 `Prompts.md` expected answers reference real-sample entities (specific ticket
 numbers, a Mantis id, and named engineers) that were deliberately held OUT of the
 synthetic corpus by the Phase-3 leakage gate. The agent physically cannot

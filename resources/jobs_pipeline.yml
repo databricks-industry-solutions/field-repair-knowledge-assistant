@@ -16,7 +16,7 @@
 #   glossary                     — mines the controlled vocabulary from bronze
 #                                  rnd_tickets, so it can be built and SME-approved
 #                                  BEFORE the pipeline's gold_enrichment reads the
-#                                  approved terms (GLO-02).
+#                                  approved terms.
 #   enrich                       — notebook: rd_tasks_gold_enrichment via ai_query,
 #                                  incremental by a content_hash LEFT ANTI JOIN + MERGE,
 #                                  so a re-run with no new tickets does zero LLM work.
@@ -96,7 +96,7 @@ resources:
         # --- glossary: the controlled vocabulary, mined from BRONZE rnd_tickets so
         #     it is available (and approvable) before the enrich pipeline runs ---
         - task_key: glossary
-          description: Build the glossary; approvals drive the enrichment enums (GLO-02).
+          description: Build the glossary; approvals drive the enrichment enums.
           depends_on:
             - task_key: load_tables
           environment_key: serverless
@@ -113,7 +113,7 @@ resources:
         # --- gold enrichment (notebook, serverless): incremental ai_query + MERGE ---
         # Serverless notebook task = NO environment_key / cluster and NO warehouse; it runs
         # SQL on its own Spark session. enum vocab comes from the APPROVED glossary at run
-        # time (GLO-02). ai_query only touches new/changed tickets (content_hash anti-join).
+        # time. ai_query only touches new/changed tickets (content_hash anti-join).
         - task_key: enrich
           description: >-
             Build rd_tasks_gold_enrichment via ai_query, incremental by a content_hash

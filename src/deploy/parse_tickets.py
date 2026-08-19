@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Field Repair Knowledge Assistant — Phase 2 deterministic ticket parser.
+Field Repair Knowledge Assistant — deterministic ticket parser.
 
 Turns the three sample ServiceNow markdown files into two in-memory
 record sets:
   - `tickets`    : one dict per ticket (the `rnd_tickets` row shape)
   - `activities` : one dict per actor-event (the `ticket_activity` row shape)
 
-Design (per CONTEXT D-01..D-08 + RESEARCH §Deterministic Parse Design):
+Design:
   - Deterministic, stdlib-only (`re`, `datetime`, `pathlib`, `json`) — NO LLM
     extraction, NO external packages. The format is fixed; determinism is the
     whole point (the demo's credibility rests on this parsing the sample
@@ -30,7 +30,7 @@ Importable:
     tickets, activities = parse_all()
 
     # Phase 3 reuse — the SAME per-record assembly that produced the real 23,
-    # so synthetic rows are schema-identical (SYN-02):
+    # so synthetic rows are schema-identical:
     from parse.parse_tickets import build_ticket_record
     ticket = build_ticket_record(fields, activity_events, note_events, bucket)
 """
@@ -62,7 +62,7 @@ SOURCE_FILES = [
     ("complete", "RnD_complete_tasks.md"),
 ]
 
-# Pinned reference date for reproducible case_age_days (D-08, RESEARCH A2).
+# Pinned reference date for reproducible case_age_days.
 AS_OF_DATE = date(2026, 7, 22)
 
 # The 6 Prompts.md-referenced tickets that must stay authentic (anti-leakage).
@@ -75,7 +75,7 @@ ANTI_LEAKAGE = [
     "R&DTASK0001017",
 ]
 
-# --- Actor normalization (D-07) --------------------------------------------
+# --- Actor normalization --------------------------------------------
 # One data-driven lookup dict keyed on lowercased fragments (email local-part,
 # initials, first name, surname, full display name) → canonical name. Only
 # tokens found in an ACTOR POSITION (Activities actor line / leading author of
@@ -120,7 +120,7 @@ NOTE_RE = re.compile(
 # never separate events/actors (Pitfall B).
 FIELD_CHANGE_KEYS = ("Assigned to", "Impact", "Opened by", "Priority", "Status")
 
-# Raw Activities event-type string → canonical enum (D-05).
+# Raw Activities event-type string → canonical enum.
 EVENT_TYPE_MAP = {
     "Field changes": "field-change",
     "Additional comments": "additional-comment",
@@ -330,7 +330,7 @@ def build_ticket_record(fields, activity_events, note_events, bucket):
     This is the single per-record assembly path shared by BOTH the real-ticket
     parse (`parse_all`) and the Phase-3 synthetic post-processor
     (`synth/postprocess.py`) — so synthetic rows are byte-schema-identical to
-    the real 23 (SYN-02). It is a pure extract-function refactor of the block
+    the real 23. It is a pure extract-function refactor of the block
     formerly inline in `parse_all`; behaviour is unchanged.
 
     Args:
@@ -360,7 +360,7 @@ def build_ticket_record(fields, activity_events, note_events, bucket):
     opened_by = extract_opened_by(activity_events)
     assigned_to = fields.get("Assigned to")
 
-    # involved_users = distinct canonical actors incl. assignee (D-06).
+    # involved_users = distinct canonical actors incl. assignee.
     involved = set()
     for ev in activity_events + note_events:
         if ev["actor"]:

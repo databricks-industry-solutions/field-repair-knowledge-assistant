@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Gold enrichment — incremental `ai_query` (ENR-01/02, GLO-02)
+# MAGIC # Gold enrichment — incremental `ai_query`
 # MAGIC
 # MAGIC Rebuilds `rd_tasks_gold_enrichment` from `rd_tasks_silver`. Runs as a serverless
 # MAGIC **notebook** job task (`resources/jobs_pipeline.yml`), so it executes SQL through the
@@ -14,7 +14,7 @@
 # MAGIC
 # MAGIC The enrichment schema, system prompt, and enum vocab are the single-source
 # MAGIC `enrich_recipe.py` (co-located, imported below). Systems/vendors enums come from the
-# MAGIC APPROVED glossary at run time (GLO-02) — no hardcoded domain lists.
+# MAGIC APPROVED glossary at run time — no hardcoded domain lists.
 
 # COMMAND ----------
 
@@ -71,7 +71,7 @@ COMMENT 'LLM enrichment of R&D tasks via ai_query, gated by content_hash. Joins 
 
 # COMMAND ----------
 
-# Step 2 — build systems/vendors enums + acronym hints FROM the approved glossary (GLO-02).
+# Step 2 — build systems/vendors enums + acronym hints FROM the approved glossary.
 rows = [
     (r["term"], r["category"], r["definition"])
     for r in spark.sql(
@@ -82,7 +82,7 @@ systems, vendors, acr = R.parse_vocab(rows)
 print(f"[enrich] vocab: {len(systems)} systems {systems}, {len(vendors)} vendors {vendors}, "
       f"{len(acr)} acronyms")
 if not systems:
-    raise ValueError("GLO-02: no approved category=system terms — cannot build the enum.")
+    raise ValueError("no approved category=system terms — cannot build the enum.")
 
 # COMMAND ----------
 

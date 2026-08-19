@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-Field Repair Knowledge Assistant — Phase 4 Genie Space ISOLATION harness (Plan 04-04).
+Field Repair Knowledge Assistant — Genie Space ISOLATION harness (Plan 04-04).
 
-Proves the "Field Repair Tickets" Genie Space works CORRECTLY IN ISOLATION (D-09,
-no Supervisor) by driving the live Conversation API for the archetype questions,
+Proves the "Field Repair Tickets" Genie Space works CORRECTLY IN ISOLATION by driving the live Conversation API for the archetype questions,
 retrieving the GENERATED SQL at `attachments[].query.query`, and asserting on the
-SQL SHAPE (per D-07 — inspect the generated SQL, not just the prose answer):
+SQL SHAPE:
 
   GEN-01  A structured COUNT question reaches COMPLETED with a non-empty result.
   GEN-02  The NM-involvement question's generated SQL JOINs ticket_activity
@@ -22,7 +21,7 @@ SQL SHAPE (per D-07 — inspect the generated SQL, not just the prose answer):
 Design (mirrors parse/validate_tickets.py — the established repo convention,
 NOT pytest, which is not installed):
   - Step 0 host-assertion gate: reuses `assert_target_host` so the harness
-    refuses to run against the wrong workspace (T-04-10 tampering).
+    refuses to run against the wrong workspace.
   - Reuses `run_cli` + `run_sql` from preflight — the same CLI OAuth path.
   - Structured verdicts: every assertion returns
     {criterion, status: PASS|FAIL, evidence, sql} and is printed as a table.
@@ -64,10 +63,10 @@ SCHEMA = _env.SCHEMA
 # never hardcoded. The build-doc parse is a last-resort fallback for a local demo run.
 GENIE_SPACE_TITLE = "Field Repair Tickets (serving)"
 BUILD_DOC = Path(
-    ".planning/phases/04-knowledge-assistant-genie-space/04-GENIE-BUILD.md"
+    "reports/04-GENIE-BUILD.md"
 )
 REPORT_PATH = Path(
-    ".planning/phases/04-knowledge-assistant-genie-space/04-GENIE-ISOLATION.md"
+    "reports/04-GENIE-ISOLATION.md"
 )
 
 # Terminal Conversation-API message statuses.
@@ -76,7 +75,7 @@ EARLY = {"SUBMITTED", "FILTERING_CONTEXT", "ASKING_AI", "EXECUTING_QUERY",
          "PENDING_WAREHOUSE", "FETCHING_METADATA", "RUNNING"}
 
 # Archetype questions — retargeted to the repointed single analytics view
-# (rd_tasks_gold_analytics, ENR-03). The space no longer carries ticket_activity,
+#. The space no longer carries ticket_activity,
 # so involvement/actor questions are replaced by the analytics-view model:
 # expert-finding = assigned_to who resolved the most matching tasks; delay =
 # duration_days / num_note_entries; open = is_closed=FALSE.
@@ -339,7 +338,7 @@ def check_gen03(res):
     # Fall back to prose mention of the signals if the SQL derives them inline.
     prose_hits = [c for c in DELAY_SIGNALS if c in prose_low]
     # GEN-03 requires the delay/complexity signals to surface — primarily in the
-    # generated SQL (D-07), with prose as a corroborating signal.
+    # generated SQL, with prose as a corroborating signal.
     passed = len(hit_cols) >= 2 or (len(hit_cols) >= 1 and len(prose_hits) >= 1)
     return verdict(
         "GEN-03 delay/complexity SQL uses signal columns",
@@ -351,7 +350,7 @@ def check_gen03(res):
 
 # --- GEN-06: "how many CA tasks?" resolves via TEXT match, not a false array-0 --
 
-# The TEXT columns a non-system term must be matched in (ENR-03 / runbook rule).
+# The TEXT columns a non-system term must be matched in.
 CA_TEXT_COLS = ["title", "summary", "customer_impact", "troubleshooting",
                 "recommendation", "root_cause", "resolution"]
 
@@ -369,7 +368,7 @@ def _ca_text_ground_truth(profile):
 
 
 def check_gen06(res, profile):
-    """GEN-06 (the ENR-03 correctness proof): 'how many CA tasks?' must resolve
+    """GEN-06: 'how many CA tasks?' must resolve
     via a TEXT-column match (CA is category=software), NOT
     array_contains(systems_involved,'CA') which is a false 0. Asserts:
       - the generated SQL matches CA in the TEXT columns (ILIKE/RLIKE), and does
@@ -461,13 +460,12 @@ def write_report(verdicts, host, space_id, archetype_sql):
         "",
         f"**Generated:** {ts}",
         f"**Workspace:** `{host}`",
-        f"**Genie space_id:** `{space_id}`  (driven directly — no Supervisor, D-09)",
+        f"**Genie space_id:** `{space_id}`",
         f"**Warehouse (cross-check):** `{WAREHOUSE_ID}`",
         "",
-        "Isolation proof (D-09): every archetype question was driven through the "
+        "Isolation proof: every archetype question was driven through the "
         "live Genie Conversation API; the GENERATED SQL was retrieved at "
-        "`attachments[].query.query` and asserted on SHAPE (D-07 — inspect the "
-        "SQL, not just the prose), with row counts cross-checked against the same "
+        "`attachments[].query.query` and asserted on SHAPE, with row counts cross-checked against the same "
         "SQL run directly on `/api/2.0/sql/statements`.",
         "",
         f"**Result: {n_pass} PASS / {n_fail} FAIL of {len(verdicts)} assertions.**",
@@ -600,14 +598,14 @@ def main():
 
     # GEN-06 — ENR-03 proof: "how many CA tasks" → TEXT match, not a false array-0.
     if want("GEN-06"):
-        print(f"\nAsking (ENR-03 CA proof): {Q_CA}")
+        print(f"\nAsking: {Q_CA}")
         r_ca = ask(space_id, Q_CA, args.profile)
         archetype_sql.append(("CA text-match proof (GEN-06)", r_ca["sql"]))
         verdicts.append(check_gen06(r_ca, args.profile))
 
     # GEN-07 — regression: a system term (ATIS) still counts via array_contains.
     if want("GEN-07"):
-        print(f"\nAsking (ENR-03 ATIS regression): {Q_ATIS}")
+        print(f"\nAsking: {Q_ATIS}")
         r_atis = ask(space_id, Q_ATIS, args.profile)
         archetype_sql.append(("ATIS array regression (GEN-07)", r_atis["sql"]))
         verdicts.append(check_gen07(r_atis, args.profile))

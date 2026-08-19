@@ -48,14 +48,14 @@ KA_CONTENT_COL = "ka_content"
 
 # COMMAND ----------
 
-# Acronym map from the approved glossary (GLO-02) — drives ka_content expansion.
+# Acronym map from the approved glossary — drives ka_content expansion.
 acr_map = R.parse_acronym_map([
     (r["term"], r["definition"])
     for r in spark.sql(f"SELECT term, definition FROM {T_GLOSSARY} WHERE status='approved'").collect()
 ])
 print(f"[serving] {len(acr_map)} approved acronyms for ka_content expansion")
 if not acr_map:
-    raise ValueError("GLO-02: no approved acronyms — refusing to build unexpanded KA content.")
+    raise ValueError("no approved acronyms — refusing to build unexpanded KA content.")
 
 # COMMAND ----------
 

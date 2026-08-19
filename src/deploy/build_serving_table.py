@@ -285,7 +285,7 @@ def main():
     # Rebind module globals BEFORE any table name is used.
     _apply_target(args)
 
-    # Host gate BEFORE any write (CLAUDE.md platform constraint).
+    # Host gate BEFORE any write (workspace host constraint).
     assert_target_host(args.profile)
 
     if args.verify:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Field Repair Knowledge Assistant — Phase 5 Plan 01: build the Multi-Agent Supervisor (MAS).
+Field Repair Knowledge Assistant — build the Multi-Agent Supervisor (MAS).
 
 Stands up ONE Agent Bricks Multi-Agent Supervisor over the THREE already-live,
 Phase-4.1-enriched tools and proves the whole pipe end-to-end:
@@ -23,7 +23,7 @@ What this script does (idempotent, host-gated — mirrors build_ka.py):
     * Author the create-request from src/deploy/supervisor_config.json (human-editable
       display_name + 3 tool descriptions + routing/synthesis instructions +
       examples[]).
-    * Create-request wire shape is a SPIKE (05-RESEARCH Open Q1): the confirmed
+    * Create-request wire shape is a SPIKE: the confirmed
       envelope is {"supervisor_agent": {...}} requiring a non-empty display_name;
       the sub-agent list key + per-agent descriptor keys are probed incrementally
       (manage_mas semantics: each agent = name + description + EXACTLY ONE of
@@ -120,7 +120,7 @@ SCHEMA = _env.SCHEMA
 # default demo schema on a --catalog/--schema retarget (dev-isolation false-fail).
 FQ = f"{CATALOG}.{SCHEMA}"
 
-# The three live tools (05-RESEARCH Runtime State Inventory, live-confirmed 2026-07-28).
+# The three live tools.
 KA_TILE_ID = "97df484b-f50a-4042-ad2f-0be5a3ce6779"
 KA_ENDPOINT = "ka-97df484b-endpoint"
 KA_ID = ""  # KA knowledge_assistant_id, discovered in main() from the KA display name
@@ -135,10 +135,10 @@ MAS_API = "/api/2.1/supervisor-agents"
 CONFIG_PATH = _HERE / "supervisor_config.json"
 BUILD_DOC = (
     REPO_ROOT
-    / ".planning/phases/05-multi-agent-supervisor/05-SUPERVISOR-BUILD.md"
+    / "reports/05-SUPERVISOR-BUILD.md"
 )
 
-# Poll config (no fixed completion timer — Pitfall 7; just a safety ceiling).
+# Poll config.
 POLL_INTERVAL_S = 20
 POLL_CEILING_S = 60 * 15  # 15 min ceiling; report + stop, re-run to resume.
 

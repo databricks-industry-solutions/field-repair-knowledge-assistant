@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Field Repair Knowledge Assistant — Phase 7 Plan 03: blind shadow-prompt loader (EVAL-03).
+"""Field Repair Knowledge Assistant — blind shadow-prompt loader.
 
 Loads the 15 pre-existing BLIND shadow prompts authored in Phase 3
-(`.planning/phases/03-synthetic-corpus-to-200/03-SHADOW-PROMPTS.md`) into
+(`reports/03-SHADOW-PROMPTS.md`) into
 ground-truth-FREE MLflow eval rows. These are paraphrased variants of the 5
 private-answer-key archetypes that the client did NOT write and that were
 authored AFTER the synthetic corpus was built — the overfit / anti-leakage
 holdout.
 
-HARD INTEGRITY RULE (T-07-05 tampering / leakage guard): this loader READS the
+HARD INTEGRITY RULE: this loader READS the
 pre-existing blind set only. It must NEVER:
   - call any paraphraser / model / synthesizer to re-author the questions,
   - read the private answer key (this module deliberately never imports the
@@ -34,9 +34,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SHADOW_PATH = (
     REPO_ROOT
-    / ".planning"
-    / "phases"
-    / "03-synthetic-corpus-to-200"
+    / "reports"
     / "03-SHADOW-PROMPTS.md"
 )
 
@@ -57,8 +55,7 @@ def load_shadow(shadow_path=SHADOW_PATH):
     for scoring, and the ground-truth-free scorers only read `inputs`/`outputs`.
 
     Raises FileNotFoundError if the committed holdout is missing — there is NO
-    fabricated / re-authored fallback (re-authoring would contaminate the blind
-    set, T-07-05).
+    fabricated / re-authored fallback.
     """
     shadow_path = Path(shadow_path)
     if not shadow_path.exists():

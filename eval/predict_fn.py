@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Field Repair Knowledge Assistant — Phase 7 Plan 01: MLflow-eval predict_fn over the MAS.
+"""Field Repair Knowledge Assistant — MLflow-eval predict_fn over the MAS.
 
 The system under test is the DEPLOYED Multi-Agent Supervisor (endpoint
 `the MAS endpoint`, Responses API `{"input":[...]}`) — the same endpoint the
@@ -16,7 +16,7 @@ to the Databricks Apps OBO config module and expects an `x-forwarded` end-user
 token, neither of which exists in a standalone CLI harness. We reuse only its
 citation-shaping CONTRACT ({response, sorted-unique R&DTASK citations}).
 
-Security (T-07-06): the OAuth token is used only as the outbound bearer inside
+Security: the OAuth token is used only as the outbound bearer inside
 the reused `invoke_mas`; it is NEVER printed, logged, or returned.
 """
 
@@ -52,12 +52,12 @@ def build_predict_fn(profile, endpoint, host, token):
     The closure is decorated with `@mlflow.trace` so `mlflow.genai.evaluate`
     scorers see a structured trace boundary per row. The parameter name is
     `question` (NOT `inputs`) so it matches the dataset `inputs={"question": ...}`
-    key — MLflow unpacks `inputs` as kwargs (Pitfall 4).
+    key — MLflow unpacks `inputs` as kwargs.
 
     The reused `invoke_mas` POSTs the Responses-API `{"input":[{role,content}]}`
     shape via curl `--max-time 300` with transient-error retry (handles the
     ~130s A4 fan-out latency + gateway "context canceled" blips). We NEVER use the
-    chat-completions request shape (Pitfall 5 carry-forward).
+    chat-completions request shape.
     """
 
     @mlflow.trace

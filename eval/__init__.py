@@ -1,1 +1,1 @@
-# Field Repair Knowledge Assistant — Phase 7 evaluation harness package marker.
+# Field Repair Knowledge Assistant — evaluation harness package marker.

@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
 """
-Knowledge Agent — Phase 3 ai_query narrative generation.
+Knowledge Agent — ai_query narrative generation.
 
 Runs ONE batch `ai_query` pass (databricks-claude-haiku-4-5, json_schema
 responseFormat, failOnError => false) over the `syn_seeds` staging table and
 materializes the raw free-text narratives ONCE into `syn_generated_raw`. The
 LLM fabricates ONLY the prose fields (title / description / notes[] /
 close_notes); every schema-bearing value stays deterministic in the seed and is
-typed later by `synth/postprocess.py` (D-01).
+typed later by `synth/postprocess.py`.
 
-Design (per CONTEXT D-01/D-03/D-08 + RESEARCH §Generation Architecture):
+Design:
   - VERIFIED call shape (live round-trip 2026-07-22): responseFormat MUST be
     the json_schema form — the plain object-type response format FAILS on haiku
     with INVALID_PARAMETER_VALUE. temperature 0.9 for length/tone variety.
   - failOnError => false so one bad generation cannot abort the batch
-    (T-03-06); gen is STRUCT{result, errorMessage} (live-verified field names —
+; gen is STRUCT{result, errorMessage} (live-verified field names —
     the payload is `gen.result`, NOT `gen.response`). After the write, count
     rows where gen.errorMessage IS NOT NULL and re-run generation for JUST those
     seed_ids (delete-then-insert of the failed ids) until zero.
   - The prompt is assembled IN SQL from `syn_seeds` columns ONLY (equipment,
     failure_mode, location, outcome_tag, note_author_plan, acronym_flag,
-    priority_label, status). The answer-key file is NEVER referenced (D-03) —
+    priority_label, status). The answer-key file is NEVER referenced —
     this file does not open it and embeds no answer-key phrasing.
   - Few-shot the model with 2-3 real dated-note exemplars so tone/format match
     the fingerprint; instruct WIDE length variety (reject uniform) and — for
@@ -140,8 +140,8 @@ def sql_str(value):
 def build_prompt_expr():
     """A SQL expression assembling the per-row generation prompt from syn_seeds.
 
-    Uses ONLY seed columns (D-03). Emits an acronym instruction only when
-    acronym_flag <> 'none' (D-08). All literal fragments are recombined domain
+    Uses ONLY seed columns. Emits an acronym instruction only when
+    acronym_flag <> 'none'. All literal fragments are recombined domain
     guidance — no answer-key phrasing.
     """
     base_instructions = (
@@ -260,7 +260,7 @@ def main():
                     help="max regeneration passes for errored seed_ids")
     args = ap.parse_args()
 
-    # Step 0 — never write to the wrong/unauthenticated workspace (T-03-02).
+    # Step 0 — never write to the wrong/unauthenticated workspace.
     host = assert_target_host(args.profile)
     warehouse_id = first_warehouse_id(args.profile)
     if not warehouse_id:

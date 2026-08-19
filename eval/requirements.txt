@@ -1,4 +1,4 @@
-# Field Repair Knowledge Assistant — Phase 7 evaluation harness dependencies.
+# Field Repair Knowledge Assistant — evaluation harness dependencies.
 #
 # This is a REPRODUCIBILITY / documentation pin, not a new install: MLflow 3.10.1
 # is already present in the local Python env (RESEARCH: Package Legitimacy Audit —

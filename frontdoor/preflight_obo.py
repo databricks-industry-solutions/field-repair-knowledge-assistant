@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Field Repair Knowledge Assistant — Phase 6 Front-Door OBO Preflight probe.
+Field Repair Knowledge Assistant — Front-Door OBO Preflight probe.
 
-Re-runnable probe of the ONE hard blocker for Phase 6 (front door): whether
+Re-runnable probe of the ONE hard blocker for whether
 Databricks Apps **user authorization** (Public Preview) — the on-behalf-of (OBO)
 mechanism FD-02 depends on — is enabled on the target workspace, plus the exact
 serving OAuth scope string the workspace offers (RESEARCH assumption A1 flagged
@@ -18,7 +18,7 @@ Design (mirrors preflight/preflight.py conventions):
     the wrong workspace.
   - Read-only: enumerates app + scope + endpoint metadata only. It NEVER creates,
     updates, or deploys anything, NEVER calls the MAS, and NEVER mints, prints,
-    or logs a token (threat T-06-01 / T-06-02).
+    or logs a token.
   - Honest reporting: probe success (a clean read) is NOT the same as the feature
     being enabled. Enablement is CONFIRMED BY A HUMAN in Task 2 against the live
     scope picker; this probe only gathers evidence and prints a finding.
@@ -39,7 +39,7 @@ TARGET_HOST_FRAGMENT = os.environ.get("RKB_TARGET_HOST", "")
 TARGET_WORKSPACE_ID = os.environ.get("RKB_TARGET_WORKSPACE_ID", "")
 DEFAULT_PROFILE = "serverless-stable"
 
-# The MAS front door will call this endpoint on behalf of the end user (FD-02).
+# The MAS front door will call this endpoint on behalf of the end user.
 MAS_ENDPOINT_NAME = os.environ.get("MAS_ENDPOINT_NAME", "")
 DEMO_PRINCIPAL = os.environ.get("RKB_PRINCIPAL", "")
 
@@ -212,7 +212,7 @@ def probe_serving_scope(profile):
 # --- Probe 3: demo principal CAN_QUERY on the MAS endpoint (OBO precondition) -
 
 def probe_endpoint_can_query(profile):
-    """OBO evaluates the USER's grants (RESEARCH Pitfall 3). Confirm the demo
+    """OBO evaluates the USER's grants. Confirm the demo
     principal can query the MAS endpoint directly — a precondition for the OBO
     path to succeed for that user."""
     code, out, _ = run_cli(["serving-endpoints", "get", MAS_ENDPOINT_NAME, "-o", "json"],

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Field Repair Knowledge Assistant — Phase 5 Plan 02: Multi-Agent Supervisor ROUTING harness.
+Field Repair Knowledge Assistant — Multi-Agent Supervisor ROUTING harness.
 
 Re-runnable assertion harness that proves the DEPLOYED 3-tool Multi-Agent
 Supervisor (`rkb-supervisor`, endpoint `the MAS endpoint`, built in Plan
@@ -20,7 +20,7 @@ Verification is content-anchored, NOT prose-trusting:
     `ka-97df484b-...`, `genie-01f185f0...`). We derive the fired-set from these
     spans via SUBSTRING matching (never exact equality — the names come back
     fully-qualified/dunder-separated per the 05-01 carry-forward).
-  * FALLBACK (CONTEXT-approved, Pitfall 4): three content signals — ticket
+  * FALLBACK: three content signals — ticket
     citations => KA fired; numeric aggregates / ranked ticket rows => Genie fired;
     a returned term+definition+category => glossary_lookup fired. Recorded per row
     as the evidence source when spans are unavailable.
@@ -84,11 +84,11 @@ KA_ENDPOINT = ""  # discovered in main() from the (suffixed) KA display name
 
 BUILD_DOC = (
     REPO_ROOT
-    / ".planning/phases/05-multi-agent-supervisor/05-SUPERVISOR-BUILD.md"
+    / "reports/05-SUPERVISOR-BUILD.md"
 )
 REPORT_PATH = (
     REPO_ROOT
-    / ".planning/phases/05-multi-agent-supervisor/05-SUPERVISOR-ROUTING.md"
+    / "reports/05-SUPERVISOR-ROUTING.md"
 )
 
 # Ticket-number pattern (corpus uses R&DTASK<7 digits>; tolerate the &-dropped form).
@@ -232,7 +232,7 @@ def _is_transient(msg):
 def invoke_mas(endpoint, question, profile, host="", token=""):
     """POST the Responses-API {"input":[...]} shape with return_trace=true, via
     curl (NOT `databricks api`, whose ~60s client timeout cancels long fan-out
-    queries). Returns (ok, resp_dict, err). NEVER {"messages":...} (Pitfall 5).
+    queries). Returns (ok, resp_dict, err). NEVER {"messages":...}.
 
     Retries transient transport errors with backoff, so a transport blip is
     never misreported as a routing FAIL."""
@@ -319,7 +319,7 @@ def fired_from_spans(resp):
 
 
 def fired_from_content(resp):
-    """FALLBACK path (Pitfall 4, CONTEXT-approved three content signals):
+    """FALLBACK path:
       ticket citations           => KA
       numeric aggregate/rank rows => Genie
       term+definition+category    => glossary_lookup
@@ -378,7 +378,7 @@ def tickets_in_corpus(numbers, profile):
 
 def grant_gate(profile, principal):
     """Re-assert the three tool-access surfaces BEFORE the matrix so a routing
-    FAIL is never masked by a missing grant (Pitfall 2 / T-5-03). Returns
+    FAIL is never masked by a missing grant. Returns
     (ok, evidence_lines). The per-tile MAS SSP grant is UI-authorized and not
     visible to workspace SQL (05-01) — its liveness is proven downstream by the
     tools actually executing in the matrix; here we assert every SQL-visible
@@ -552,8 +552,7 @@ def check_sup03(results):
             "PASS" if both else "FAIL",
             f"observed={sorted(fired) or 'none'}; both KA+Genie present={both}; "
             f"tool spans={rec['names']}"
-            + ("" if both else " (known-limitation if single-engine persists — "
-               "Pitfall 3 / Assumption A4)"),
+            + ("" if both else " (known-limitation if single-engine persists)"),
             rec["source"]))
     return vs
 
@@ -682,7 +681,7 @@ def write_report(host, endpoint, results, verdicts, extra_sections=None):
         "inline as `output[].type == function_call` items whose `name` is the "
         "dunder-qualified tool name (`...__glossary_lookup`, `ka-97df484b-...`, "
         "`genie-01f185f0...`) — matched by SUBSTRING (never exact equality). "
-        "**Fallback (CONTEXT-approved, Pitfall 4):** ticket citations => KA; "
+        "**Fallback:** ticket citations => KA; "
         "numeric aggregates/ranked rows => Genie; term+definition+category => "
         "glossary_lookup. The `Evidence source` column records which carried each row.",
         "",

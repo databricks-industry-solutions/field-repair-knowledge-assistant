@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Field Repair Knowledge Assistant — Phase 4 Plan 01: build the Knowledge Assistant.
+Field Repair Knowledge Assistant — build the Knowledge Assistant.
 
 Stands up a live Agent Bricks Knowledge Assistant over the sample R&D corpus:
 
   1. Create a MANAGED UC Volume for a curated acronym glossary, upload glossary.md.
   2. Create the KA via /api/2.1/knowledge-assistants (NOT /api/2.0/tiles) with
-     anti-leakage, hedge-and-cite instructions (D-04).
+     anti-leakage, hedge-and-cite instructions.
   3. Attach TWO knowledge sources:
        - source 1: the rnd_tickets Delta table (content col case_text)   [D-01]
        - source 2: the glossary.md file in the new Volume                 [D-03]
-  4. Trigger :sync and POLL to ACTIVE / UPDATED (no fixed timer — Pitfall 6).
+  4. Trigger :sync and POLL to ACTIVE / UPDATED.
   5. Fire one live terminology query at the serving endpoint and dump the RAW
      response so the citation-payload shape can be inspected (A2 spike).
   6. Record KA id, serving endpoint_name, indexing wall-clock, confirmed
@@ -83,7 +83,7 @@ GLOSSARY_FILE_PATH = f"{GLOSSARY_VOLUME_PATH}/glossary.md"
 SOURCE_TYPE_FILE_TABLE = "file_table"
 SOURCE_TYPE_FILES = "files"
 
-# Poll config (no fixed completion timer — Pitfall 6; just a safety ceiling).
+# Poll config.
 POLL_INTERVAL_S = 30
 POLL_CEILING_S = 60 * 90  # 90 min safety ceiling; report if exceeded, don't hang forever
 
@@ -91,10 +91,10 @@ REPO_ROOT = _HERE.parent
 LOCAL_GLOSSARY = _HERE / "glossary.md"
 BUILD_DOC = (
     REPO_ROOT
-    / ".planning/phases/04-knowledge-assistant-genie-space/04-KA-BUILD.md"
+    / "reports/04-KA-BUILD.md"
 )
 
-# KA instructions — hedge + cite + anti-leakage (D-04).
+# KA instructions — hedge + cite + anti-leakage.
 #
 # THESE ARE THE LIVE, TUNED INSTRUCTIONS, recovered from the running
 # `rkb-knowledge-assistant` on 2026-08-05. The prose version that used to
@@ -249,7 +249,7 @@ def ensure_glossary_volume(profile):
     ddl = (
         f"CREATE VOLUME IF NOT EXISTS "
         f"{DEMO_CATALOG}.{DEMO_SCHEMA}.{GLOSSARY_VOLUME} "
-        f"COMMENT 'Curated acronym glossary — 2nd KA knowledge source (D-03)'"
+        f"COMMENT 'Curated acronym glossary — 2nd KA knowledge source'"
     )
     state, _ = run_sql(ddl, profile)
     if state != "SUCCEEDED":
@@ -355,7 +355,7 @@ def attach_sources(ka_name, profile):
     existing_names = {s.get("display_name") for s in existing}
     print(f"[T2] Existing sources: {sorted(n for n in existing_names if n)}")
 
-    # Source 1 — Delta table (D-01). CONFIRMED source_type = "file_table".
+    # Source 1 — Delta table. CONFIRMED source_type = "file_table".
     if "rnd_tickets_corpus" not in existing_names:
         print("[T2] Attaching source 1: rnd_tickets Delta table (file_table)...")
         body = {
@@ -377,7 +377,7 @@ def attach_sources(ka_name, profile):
     else:
         print("[T2] Delta source already attached (skip).")
 
-    # Source 2 — glossary Volume file (D-03). CONFIRMED source_type = "files".
+    # Source 2 — glossary Volume file. CONFIRMED source_type = "files".
     if "rkb_glossary" not in existing_names:
         print("[T2] Attaching source 2: glossary Volume file (files)...")
         body = {
@@ -408,7 +408,7 @@ def attach_sources(ka_name, profile):
 
 def repoint_corpus_source(ka_name, profile):
     """Repoint the `rnd_tickets_corpus` source at the enriched `ka_content`
-    column (ENR-03), using the DETACH + RE-ATTACH mechanism the 04.1-01 spike
+    column, using the DETACH + RE-ATTACH mechanism the 04.1-01 spike
     verdict recorded (REQUIRES_DETACH_REATTACH — `file_table.file_col` is
     IMMUTABLE in the knowledge-source UPDATE mask, so a :sync repoint is
     impossible; only DELETE + re-create moves the indexed column).
@@ -447,7 +447,7 @@ def repoint_corpus_source(ka_name, profile):
         "display_name": CORPUS_SOURCE_NAME,
         "description": (
             "R&D tickets; segmented + glossary-acronym-expanded content "
-            "in ka_content (ENR-03). Citations resolve via the rnd_tickets "
+            "in ka_content. Citations resolve via the rnd_tickets "
             "metadata struct (ticket number in the file path)."
         ),
         "source_type": SOURCE_TYPE_FILE_TABLE,
@@ -636,7 +636,7 @@ citation-payload shape.
 | final KA state | `{(ka_json or {}).get('state')}` |
 | ready (ACTIVE + all UPDATED) | `{ready}` |
 
-## Indexing Wall-Clock (Pitfall 6 — live-only)
+## Indexing Wall-Clock
 
 - **Polled to ACTIVE/UPDATED in:** ~{elapsed}s ({elapsed/60:.1f} min) over the sample corpus of short
   `case_text` rows + 1 glossary file.

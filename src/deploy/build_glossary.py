@@ -9,7 +9,7 @@ resolved by env.py.
 
 Two corpora, merged (docs win on definition/category):
   1. ServiceNow (bronze rnd_tickets): `ai_query` extracts candidate domain terms per
-     ticket, materialized once (Pitfall 5), grounding-guarded to verbatim mentions;
+     ticket, materialized once, grounding-guarded to verbatim mentions;
      then a second `ai_query` proposes definition/category/confidence per candidate.
   2. Product docs (data/product_docs/*.md) + the 20 curated src/deploy/glossary.md
      terms — authoritative definitions/categories/aliases, pre-loaded as
@@ -71,7 +71,7 @@ T_GLOSSARY_PROP = f"{FQ}.glossary_proposals"
 T_GLOSSARY = f"{FQ}.glossary"
 DEFAULT_PROFILE = "serverless-stable"
 
-# ai_query BATCH-capable endpoint. sonnet-5 is NOT batch-supported (Pitfall 2);
+# ai_query BATCH-capable endpoint. sonnet-5 is NOT batch-supported;
 # sonnet-4-5 verified batch-capable on the reference workspace.
 CHAT_ENDPOINT = "databricks-claude-sonnet-4-5"
 
@@ -355,7 +355,7 @@ SELECT
   cast(NULL AS STRING)    AS edited_definition,
   cast(NULL AS STRING)    AS edited_category,
   -- authoritative curated aliases seed edited_aliases so promote() carries them
-  -- into the governed glossary (GLO-04 alias resolution) without re-typing.
+  -- into the governed glossary without re-typing.
   CASE WHEN d.k IS NOT NULL THEN d.aliases ELSE cast(NULL AS ARRAY<STRING>) END AS edited_aliases,
   current_timestamp()     AS proposed_at
 FROM sn FULL OUTER JOIN d ON sn.k = d.k
@@ -423,7 +423,7 @@ def run_sql_poll(statement, profile, warehouse_id, max_wait_s=1200, poll_s=10):
     """Submit a statement and POLL statement_id to completion.
 
     preflight.run_sql uses a 50s server-side wait_timeout and returns PENDING for
-    long ai_query batch stages (Pitfall 5 scale note: ~200 model calls). Here we
+    long ai_query batch stages. Here we
     submit, and if not terminal, poll GET /statements/{id} until SUCCEEDED/FAILED.
     Returns (state, data_array).
     """
@@ -556,7 +556,7 @@ def _apply_target(args):
     return cat, sch, fq, wh
 
 def main():
-    ap = argparse.ArgumentParser(description="Build the two-source glossary_proposals (GLO-01).")
+    ap = argparse.ArgumentParser(description="Build the two-source glossary_proposals.")
     # Accept --catalog/--schema/--warehouse-id so a DAB job task can retarget
     # this script. Serverless job environments cannot set env vars, so flags
     # are the only retargeting channel available to the bundle.

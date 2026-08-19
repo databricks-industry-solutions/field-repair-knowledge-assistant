@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Field Repair Knowledge Assistant — Phase 1 Environment Preflight harness.
+Field Repair Knowledge Assistant — Environment Preflight harness.
 
 Re-runnable proof that the target Databricks workspace
 (the reference workspace) can support the entire
-Agent Bricks build. Produces .planning/phases/01-environment-preflight/01-PREFLIGHT-REPORT.md
+Agent Bricks build. Produces reports/01-PREFLIGHT-REPORT.md
 with a per-criterion PASS/FAIL/BLOCKED evidence table.
 
 Design (per Phase 1 CONTEXT + RESEARCH):
@@ -14,7 +14,7 @@ Design (per Phase 1 CONTEXT + RESEARCH):
   - Structured-verdict pattern: every check returns
     {criterion, status: PASS|FAIL|BLOCKED, evidence, escalation}.
   - Honest reporting: a missing enablement is BLOCKED with an explicit
-    escalation ask — never a faked PASS (CONTEXT D-04).
+    escalation ask — never a faked PASS.
   - Doubles as demo-day endpoint warm-up (reused in Phase 8, DEMO-02).
 
 Checks use the Databricks CLI (`databricks ... --profile serverless-stable`) as
@@ -59,9 +59,7 @@ FM_MODELS = ["databricks-claude-sonnet-4-5", "databricks-claude-haiku-4-5"]
 SUPPORTED_REGION_PREFIXES = ("us-", "eu-", "ca-", "sa-")
 APAC_CROSS_GEO_PREFIXES = ("ap-",)
 
-REPORT_PATH = Path(
-    ".planning/phases/01-environment-preflight/01-PREFLIGHT-REPORT.md"
-)
+REPORT_PATH = Path
 
 
 def run_cli(args, profile):

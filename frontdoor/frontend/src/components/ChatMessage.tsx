@@ -53,7 +53,7 @@ export default function ChatMessage({ message }: ChatMessageProps) {
             <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
           </div>
         ) : (
-          // Plain text — React escapes by default (T-06-10).
+          // Plain text — React escapes by default.
           text
         )}
         {citations && citations.length > 0 && (

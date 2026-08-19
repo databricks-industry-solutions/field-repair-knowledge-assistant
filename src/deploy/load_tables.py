@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
 """
-Field Repair Knowledge Assistant — Phase 2 Delta loader.
+Field Repair Knowledge Assistant — Delta loader.
 
 Creates the two canonical Delta tables in the demo schema and loads the 23
 parsed real R&D tickets + their actor-events into them via the serverless SQL
 path proven in Phase 1 (`preflight.run_sql` + host-assertion gate).
 
-Design (per CONTEXT D-02/D-03/D-05/D-06/D-09 + RESEARCH §Canonical Table Shape,
-§KA Delta-Source Validity, §Writing to Delta on Serverless, §Pitfall F):
-  - Step 0 host-assertion gate (T-02-03): `assert_target_host` refuses to write
+Design:
+  - Step 0 host-assertion gate: `assert_target_host` refuses to write
     to any workspace but the reference workspace.
   - Imports `parse_all()` from parse_tickets (the deterministic parser) — the
     loader never re-parses, it only types + escapes + writes.
   - CREATE OR REPLACE TABLE with `delta.enableChangeDataFeed = true` set AT
-    CREATE (D-09) so re-runs are idempotent (no accumulation) and the KA
+    CREATE so re-runs are idempotent (no accumulation) and the KA
     contract is satisfied without a follow-up ALTER.
   - metadata STRUCT built with EXACTLY the 4 KA-required fields in order/types
     (file_path STRING, file_name STRING, file_size BIGINT,
     file_modification_time TIMESTAMP) via named_struct — business fields stay
     TOP-LEVEL columns (Pitfall D: wrong struct shape fails silently at Phase 4).
   - Free-text (description/notes/close_notes/case_text/detail) single-quote
-    escaped by doubling '' (T-02-04 / Pitfall F); multi-line literals are fine.
+    escaped by doubling ''; multi-line literals are fine.
 
 Usage:
     python3 parse/load_tables.py --profile serverless-stable
@@ -64,7 +63,7 @@ FQ = f"{DEMO_CATALOG}.{DEMO_SCHEMA}"
 TICKETS = f"{FQ}.rnd_tickets"
 ACTIVITY = f"{FQ}.ticket_activity"
 
-# --- SQL literal builders (escaping — Pitfall F / T-02-04) ------------------
+# --- SQL literal builders ------------------
 
 
 def sql_str(value):
@@ -279,7 +278,7 @@ def exec_sql_poll(stmt, profile, warehouse_id, label, poll_timeout=1200):
     return d.get("result", {}).get("data_array")
 
 
-# --- Append mode (Wave 3 — D-10/D-11, INSERT-only, never CREATE OR REPLACE) --
+# --- Append mode --
 
 def has_column(table, column, profile, warehouse_id):
     """True iff `column` already exists on `table` (DESCRIBE-based idempotency)."""
@@ -294,7 +293,7 @@ def has_column(table, column, profile, warehouse_id):
 
 
 def append_synthetic(profile, warehouse_id, host):
-    """Leakage-gated, INSERT-only, idempotent synthetic append (D-10/D-11).
+    """Leakage-gated, INSERT-only, idempotent synthetic append.
 
     Sequence (all after assert_target_host, which the caller already ran):
       1. Post-process the staged synthetic records + run the Tier-1 leakage
@@ -305,7 +304,7 @@ def append_synthetic(profile, warehouse_id, host):
          200 synthetic tickets (is_synthetic=true) + their activity events.
       4. Post-append assertions: total >= 200, is_synthetic=false == 23,
          is_synthetic IS NULL == 0, no 0001xxx among synthetic.
-    Never CREATE OR REPLACE the real corpus (Pitfall 4 — that wipes the 23).
+    Never CREATE OR REPLACE the real corpus.
     """
     from postprocess import process_all  # local import: only append needs it
     from leakage_gate import check_leakage, load_answer_sentences
@@ -362,7 +361,7 @@ def append_synthetic(profile, warehouse_id, host):
                       profile, warehouse_id,
                       f"INSERT synthetic ticket_activity[{i}:{i+len(chunk)}]")
 
-    # 4. Post-append assertions (the D-10 integrity guarantees).
+    # 4. Post-append assertions.
     def _scalar(stmt):
         _, d = run_sql(stmt, profile, warehouse_id)
         return int(d[0][0]) if d and d[0] and d[0][0] is not None else None
@@ -417,7 +416,7 @@ def main():
     args = ap.parse_args()
     _apply_target(args)
 
-    # Step 0 — never write to the wrong/unauthenticated workspace (T-02-03).
+    # Step 0 — never write to the wrong/unauthenticated workspace.
     host = assert_target_host(args.profile)
     # Warehouse comes from --warehouse-id (DAB passes ${var.warehouse_id}); fall back
     # to auto-discovery only when it was not provided (local convenience).
@@ -427,9 +426,9 @@ def main():
               file=sys.stderr)
         sys.exit(2)
 
-    # Append mode: INSERT-only extension of the EXISTING corpus (D-10). The
+    # Append mode: INSERT-only extension of the EXISTING corpus. The
     # CREATE OR REPLACE path below is NEVER reached — it would wipe the 23 real
-    # rows (Pitfall 4).
+    # rows.
     if args.append_synthetic:
         append_synthetic(args.profile, warehouse_id, host)
         return

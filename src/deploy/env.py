@@ -14,7 +14,7 @@ Resolution order (first wins):
      unchanged, with no flag and no env var.
 
 The defaults are deliberate, not laziness: this is a demo pinned to one workspace
-by CLAUDE.md, and silently resolving to an EMPTY catalog would turn a missing env
+by the workspace policy, and silently resolving to an EMPTY catalog would turn a missing env
 var into a confusing SQL error instead of a working run. A bundle sets the env
 vars explicitly (see resources/jobs_*.yml).
 

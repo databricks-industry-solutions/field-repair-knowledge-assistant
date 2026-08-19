@@ -17,7 +17,7 @@ import json
 import re
 
 # --- enrichment model + provenance constants --------------------------------
-# ai_query BATCH-capable endpoint. sonnet-5 is NOT batch-supported (Pitfall 2);
+# ai_query BATCH-capable endpoint. sonnet-5 is NOT batch-supported;
 # sonnet-4-5 verified batch-capable.
 CHAT_ENDPOINT = "databricks-claude-sonnet-4-5"
 PROMPT_VERSION = "enrich-v3-desc-segmented"
@@ -50,14 +50,14 @@ ACR_RE = re.compile(r"^[A-Z0-9]{2,6}$")
 SHORTDEF_MAX = 60
 
 
-# --- glossary row parsers (GLO-02, pure — no I/O) ---------------------------
+# --- glossary row parsers ---------------------------
 
 def parse_vocab(rows):
     """Build (systems, vendors, acr) from approved-glossary rows.
 
     `rows` is an iterable of (term, category, definition). NO hardcoded
     system/vendor list — a term is an enum value iff its glossary category says
-    so (the GLO-02 coupling). `acr` maps an acronym term to a short definition
+    so. `acr` maps an acronym term to a short definition
     used only as a normalization hint in the system prompt.
     """
     systems, vendors, acr = set(), set(), {}
@@ -77,7 +77,7 @@ def parse_acronym_map(rows):
 
     An acronym is expandable iff it is an approved glossary term head matching
     [A-Z0-9]{2,6}. Short def = first clause of the definition (mirrors the
-    reference `normalize_text` derivation). NO hardcoded acronym list (GLO-02).
+    reference `normalize_text` derivation). NO hardcoded acronym list.
     """
     acr = {}
     for term, definition in rows:
@@ -149,7 +149,7 @@ def build_system_prompt(systems, vendors, acr):
     return prompt.replace("'", "’")
 
 
-# --- glossary-acronym expansion (KA content, ENR-03) ------------------------
+# --- glossary-acronym expansion ------------------------
 
 def _sql_str(s):
     """Escape a Python string for a single-quoted Spark SQL string literal."""

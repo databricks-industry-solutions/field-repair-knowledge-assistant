@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Field Repair Knowledge Assistant — Phase 7 Plan 02: custom citation_groundedness scorer.
+"""Field Repair Knowledge Assistant — custom citation_groundedness scorer.
 
 The groundedness/citation dimension of EVAL-02. The built-in
 retrieval-groundedness scorer CANNOT be used here: the deployed MAS endpoint
 emits inline prose citations + `function_call` tool spans, NOT MLflow `Document`
-RETRIEVER spans (RESEARCH Pitfall 5 / Assumption A1). So groundedness is a custom
+RETRIEVER spans. So groundedness is a custom
 `@scorer` that:
 
   (a) if the answer makes claims with ZERO R&DTASK citations -> "no";
@@ -123,6 +123,5 @@ def score_citation_groundedness(inputs, outputs, profile=None):
 def citation_groundedness(inputs, outputs):
     """MLflow scorer: resolves every R&DTASK citation against the live corpus and
     judges claim support. One distinct MLflow metric key: citation_groundedness.
-    The built-in retrieval-groundedness scorer is NOT used (no RETRIEVER span —
-    Pitfall 5)."""
+    The built-in retrieval-groundedness scorer is NOT used."""
     return score_citation_groundedness(inputs, outputs, PROFILE)

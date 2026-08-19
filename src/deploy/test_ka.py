@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Field Repair Knowledge Assistant — Phase 4 Knowledge-Assistant ISOLATION harness.
+Field Repair Knowledge Assistant — Knowledge-Assistant ISOLATION harness.
 
 Re-runnable assertion harness that proves the deployed Knowledge Assistant
 (`ka-97df484b-endpoint`, KA id 97df484b-f50a-4042-ad2f-0be5a3ce6779, built in
-Plan 04-01) works CORRECTLY IN ISOLATION (D-09, no Supervisor) over the
+Plan 04-01) works CORRECTLY IN ISOLATION over the
 sample corpus. Mirrors the structured-verdict pattern of
 `parse/validate_tickets.py` and reuses the Phase-1 `preflight` primitives
 (host-assertion gate + serverless SQL `run_sql`).
@@ -13,13 +13,13 @@ Requirements proven (REQUIREMENTS §KA):
   - KA-01: an open/incomplete-ticket description returns >=1 cited prior case.
   - KA-02: every cited ticket number ∈ `rnd_tickets` AND the cited ticket's
     `case_text` actually SUPPORTS the claim — not just that a citation appears
-    (D-02 / RESEARCH Pitfall 3). Resolution is proven two ways: the cited
+. Resolution is proven two ways: the cited
     number resolves via SQL, and the citation URL's `#:~:text=` quoted fragment
     is a verbatim substring of that ticket's `case_text`.
   - KA-03/04: the A1 terminology query ("what does 'CA' mean in R&DTASK0001006")
     resolves to "Controller Application", HEDGED, with >=1 citation, and is NOT
     sourced solely from 0001006 — the citation set carries the glossary and/or a
-    co-occurring ticket (D-04 anti-leakage / RESEARCH Pitfall 4).
+    co-occurring ticket.
 
 Design notes (the resolved spike facts from 04-KA-BUILD.md — read at runtime):
   - The KA is a Databricks **Responses API** endpoint. Query it via
@@ -97,9 +97,8 @@ SIMILAR_CASE_PROMPT = (
 # Ticket-number pattern (post-URL-decode). Corpus uses R&DTASK<7 digits>.
 TICKET_RE = re.compile(r"R&?DTASK\d{7}")
 
-# Hedge / qualifying tokens that mark a non-definitive answer (D-04 / Pitfall
-# 4). Any one present satisfies the hedge requirement. This is deliberately
-# BROAD: the anti-leakage warning sign (Pitfall 4) is a HARD definition planted
+# Hedge / qualifying tokens that mark a non-definitive answer. Any one present satisfies the hedge requirement. This is deliberately
+# BROAD: the anti-leakage warning sign is a HARD definition planted
 # from 0001006 alone; the KA instead frames "CA" via corpus-wide usage
 # ("across the corpus", "sometimes referenced ... rather than the physical
 # controller", "possible related links"). Those qualifying framings are the
@@ -116,11 +115,11 @@ HEDGE_TOKENS = [
     "referenced", "rather than", "when engineers", "in the context",
 ]
 
-# The real ticket the A1 prompt names — must NOT be the SOLE citation (D-04).
+# The real ticket the A1 prompt names — must NOT be the SOLE citation.
 LEAK_TICKET = "R&DTASK0001006"
 
 REPORT_PATH = Path(
-    ".planning/phases/04-knowledge-assistant-genie-space/04-KA-ISOLATION.md"
+    "reports/04-KA-ISOLATION.md"
 )
 
 # Minimum decoded-fragment length treated as a meaningful supporting quote.
@@ -268,7 +267,7 @@ def quote_supported(quote, case_text):
     quote's own commas are percent-encoded, so any LITERAL comma after decode
     is a directive delimiter. We accept the claim if ANY substantial delimited
     chunk is present in case_text — proving the citation resolves to text that
-    actually exists in the source (KA-02 / Pitfall 3).
+    actually exists in the source.
     """
     ct = _norm(case_text)
     if not ct or not quote:
@@ -374,7 +373,7 @@ def check_ka0304(resp, err, profile, wh):
     anns = annotations_of(resp)
     has_citation = len(anns) >= 1
 
-    # KA-04 anti-leakage (D-04 / Pitfall 4). The security property is that the CA
+    # KA-04 anti-leakage. The security property is that the CA
     # definition is the CURATED/AUTHORITATIVE one — not a value hallucinated or
     # planted solely inside the named 0001006 ticket. Two ways that is satisfied:
     #   (a) the source set is not 0001006-only (glossary.md cited, or a co-occurring
@@ -423,7 +422,7 @@ def build_report(host, verdicts):
         f"**Generated:** {ts}",
         f"**Harness:** `src/deploy/test_ka.py` (re-runnable; exits non-zero on any FAIL)",
         "",
-        "This proves the KA STANDALONE (D-09, no Supervisor): the deployed "
+        "This proves the KA STANDALONE: the deployed "
         "endpoint is queried directly and every citation is resolved against "
         "the live corpus. Citations are parsed live from "
         "`output[].content[].annotations[]` (url_citation) — never hardcoded.",
@@ -450,16 +449,16 @@ def build_report(host, verdicts):
         "`R&?DTASK\\d{7}` on the file path. Glossary citations "
         "(`.../glossary/glossary.md`) carry no ticket number.")
     lines.append(
-        "- **KA-02 resolution (Pitfall 3):** for each cited number, "
+        "- **KA-02 resolution:** for each cited number, "
         "`SELECT coalesce(ka_content, case_text) FROM rd_tasks_serving WHERE "
         "number = <cited>` must return a row AND the citation URL's `#:~:text=` "
         "quoted fragment must be a "
         "verbatim (whitespace-normalized) substring of that `case_text` — "
         "proving the cited ticket actually contains the claimed fact.")
     lines.append(
-        "- **KA-03/04 anti-leakage (D-04 / Pitfall 4):** answer must contain "
+        "- **KA-03/04 anti-leakage:** answer must contain "
         "'Controller Application' (KA-03) + >=1 citation, and the definition "
-        "must be GROUNDED IN THE CURATED GLOSSARY (D-03) and/or a co-occurring "
+        "must be GROUNDED IN THE CURATED GLOSSARY and/or a co-occurring "
         "ticket — i.e. R&DTASK0001006 is NOT the sole definitional source "
         "(KA-04). The deployed KA reliably cites `glossary.md`, so a confident "
         "glossary-grounded definition is correct, not leakage; a hedge token is "
@@ -491,7 +490,7 @@ def main():
     def wanted(*ids):
         return (not only) or any(i in only for i in ids)
 
-    # Step 0 — never query the wrong/unauthenticated workspace (T-04-04).
+    # Step 0 — never query the wrong/unauthenticated workspace.
     host = assert_target_host(args.profile)
     wh = WAREHOUSE_ID or first_warehouse_id(args.profile)
     if not wh:

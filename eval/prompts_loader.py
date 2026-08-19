@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Field Repair Knowledge Assistant — Phase 7 Plan 02: Prompts.md loader (answer key).
+"""Field Repair Knowledge Assistant — Prompts.md loader (answer key).
 
 `Prompts.md` is the client's PRIVATE acceptance bar — the 5 archetype questions
 plus their expected-answer bullets. It is deliberately NOT tracked in the repo
@@ -7,7 +7,7 @@ plus their expected-answer bullets. It is deliberately NOT tracked in the repo
 corpus). This module reads it via `RKB_PROMPTS_PATH` (mirroring
 `synth/leakage_gate.py`) INTO MEMORY ONLY.
 
-HARD confidentiality rule (T-07-01 / T-07-02): this loader must NEVER write any
+HARD confidentiality rule: this loader must NEVER write any
 Prompts.md content — neither the questions nor the answer bullets — to any file
 on disk. It only returns an in-memory structure. Callers (eval/dataset.py) use it
 to align archetype phrasing/count; they must NOT copy verbatim answer-key

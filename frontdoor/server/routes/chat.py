@@ -1,12 +1,12 @@
 """Chat routes: submit/poll OBO proxy to the warm MAS endpoint.
 
-Why submit/poll (RESEARCH Pattern 3 / Pitfall 1): the Databricks Apps reverse
+Why submit/poll: the Databricks Apps reverse
 proxy enforces a non-configurable 120s per-request timeout, but the worst-case A4
 fan-out takes ~130s. A single blocking POST would 504 silently at the proxy. So
 POST /api/chat returns a job_id immediately (<1s), a background thread runs the
 long MAS call, and GET /api/chat/{job_id} polls — each poll returns far under 120s.
 
-OBO (FD-02 / T-06-06): the outbound MAS bearer is the END USER's forwarded
+OBO: the outbound MAS bearer is the END USER's forwarded
 `x-forwarded-access-token`, NEVER the app service-principal token. A local-dev
 fallback to the CLI/SP token applies ONLY when the header is absent.
 

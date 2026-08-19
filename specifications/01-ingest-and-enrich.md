@@ -23,7 +23,7 @@ LEFT ANTI JOIN selects only new/changed tickets, `ai_query` runs over just those
 `MERGE` upserts by `number` — so a re-run with no new tickets does zero LLM work.
 `rd_tasks_serving` is a **plain Delta table** (CDF on), NOT a materialized view: the KA
 streams from it and streaming from an MV is unsupported. `glossary` mines from bronze
-`rnd_tickets`, not silver, so the approved vocabulary (GLO-02) is ready before the
+`rnd_tickets`, not silver, so the approved vocabulary is ready before the
 enrichment enum is built.
 
 **Grain:** one row per task, end to end. Bronze, silver, enrichment and the serving
@@ -110,7 +110,7 @@ Two rules that matter:
    schema. The pipeline refuses to emit an uncontrolled term list, and a pipeline
    **expectation** asserts every emitted `systems_involved` value is an approved
    `category='system'` term — the declarative replacement for the old `--drift-guard`
-   mode (GLO-02).
+   mode.
 2. **Never invent content.** The model is instructed to return an empty string for
    any description part the ticket does not cover. A fabricated "customer impact"
    is worse than a blank one.

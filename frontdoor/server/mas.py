@@ -16,7 +16,7 @@ behavior) rendered the answer two or three times over, interleaved with agent ta
 and pipe-delimited tables. On the captured A5 fixture that is 18,916 characters of
 which the actual answer is the last 3,184.
 
-Security (T-06-05 / T-06-06): the user token is used only as the outbound bearer
+Security: the user token is used only as the outbound bearer
 and is NEVER logged, printed, or returned to the client. There is NO fallback to
 the app service-principal token here — the caller supplies the user token.
 """
@@ -77,7 +77,7 @@ def invoke_mas(question: str, user_token: str) -> dict:
 # The endpoint supports SSE via {"stream": true}. We stream APP -> MAS only; the
 # browser still uses submit/poll, so the Apps proxy never holds a long-lived
 # streamed request and the non-configurable 120s proxy limit stays handled exactly
-# as before (RESEARCH Pitfall 1).
+# as before.
 #
 # Why progress-only and not streamed prose: the stream mirrors the ROUTING TRACE.
 # Measured on the A5-style WIM question, the first text arrives at ~4s but it is
