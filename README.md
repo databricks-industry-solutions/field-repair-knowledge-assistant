@@ -11,7 +11,6 @@ throwaway demo: it runs end-to-end on day one, then you point it at your own dat
 
 ## Example
 
-| | |
 |---|---|
 | **Org** | A roadside truck-screening equipment operator (weigh-in-motion scales, plate/DOT readers, inspection cameras) running sites across US states and Canadian provinces |
 | **Problem** | A decade of ServiceNow troubleshooting history is effectively write-only. The engineer who solved this exact failure two years ago has moved on; their ticket is unfindable among thousands, so the team re-diagnoses from scratch. |
