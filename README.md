@@ -94,50 +94,13 @@ Where the value comes from:
 | Revenue / SLA penalty per downtime-hour | **They tell you** | only the business can set this; never invent it |
 | Attribution to Databricks | **They set it** | their call, not yours |
 
-Do not walk in with a finished ROI number. The first three multipliers come from
-their systems and this demo; the fourth is theirs alone. Filling it in for them is
-how a value case stops being credible.
-
-**The demo is what makes the third term real.** Everything else is arithmetic the
-customer can already do. What they cannot do without this is turn ten years of
-unsearchable tickets into a cited answer in seconds — so anchor on the measured
-before/after and let them own the money.
 
 ---
 
 
 ## Running it in your own workspace
 
-Defaults are neutral on purpose — nothing here silently writes into a catalog you
-did not name. **The warehouse id has no default** and must be supplied; a wrong one
-fails confusingly, and AI Functions do not run on SQL Warehouse Classic.
-
-```bash
-export DATABRICKS_CONFIG_PROFILE=<your-profile>
-export RKB_TARGET_HOST=<fragment-of-your-workspace-host>   # arms the safety gate
-databricks bundle deploy -t dev \
-  --var catalog=<catalog> --var schema=<schema> --var warehouse_id=<serverless-wh-id>
-```
-
-`RKB_TARGET_HOST` is optional but recommended: unset, the host gate is **disabled**
-and any authenticated workspace is accepted. These scripts create catalogs, agents
-and apps, so set it before pointing this anywhere you care about.
-
-Full sequence and gates: **`DEPLOYMENT.md`**.
-
----
-
-## Honest caveats
-
-- **Agent Bricks assets are job-wrapped, not native bundle resources.** DAB has no
-  resource type for a Knowledge Assistant or a Supervisor (`genie_spaces` *is*
-  native). They are created idempotently by scripts run as job tasks, which means
-  no drift detection and `bundle destroy` will not remove them.
-- **The KA's indexed column is immutable once attached.** Changing it requires
-  detaching the knowledge source and re-indexing the full corpus.
-- **Enrichment quality depends on the glossary.** With an empty or unapproved
-  glossary the enrichment has no vocabulary to work with and the build refuses to
-  run rather than emitting an uncontrolled term list.
+Follow DEPLOYMENT.MD
 
 ---
 
