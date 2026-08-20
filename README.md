@@ -1,20 +1,39 @@
 # FieldFix: a Multi-Agent Knowledge Assistant for Field Troubleshooting & Repair
 
 **An integration blueprint — a working, deployable Databricks multi-agent knowledge
-assistant over your organization's historical maintenance & repair tickets. Not a
-throwaway demo: it runs end-to-end on day one, then you point it at your own data.**
+assistant that turns your organization's historical operational records into a
+searchable knowledge base for day-to-day operations. Not a throwaway demo: it runs
+end-to-end on day one, then you point it at your own data.**
 
 - Ask in plain English → cited prior cases with **real ticket numbers**
 - A **Supervisor** routes each question to a Knowledge Assistant, Genie, or both
 - Controlled vocabulary lives in a **governed glossary** — a term becomes extractable by being *approved*, not by a deploy
 - **Domain-agnostic** — swap the corpus + glossary; pipeline, agents, and app are unchanged
 
+## The problem
+
+Every operations-heavy organization sits on years of hard-won troubleshooting
+knowledge — tickets, resolutions, tribal know-how — that is effectively *write-only*.
+The engineer who solved a failure two years ago has moved on, and their fix is buried
+in free-text notes with inconsistent jargon, unfindable among thousands of records. So
+teams re-diagnose from scratch, and operational questions like "how many, who owns it,
+which sites, what's the backlog" stay manual queries nobody has time to write.
+
+This is a reusable blueprint for **any** team that wants to turn that history into a
+knowledge base that enhances operations — field repair is just the shipped example.
+Two complementary engines cover the two kinds of questions, and neither is enough
+alone: a **Knowledge Assistant** handles unstructured recall ("have we seen this,
+what's the fix?") with cited prior cases, while **Genie** handles structured analytics
+("how many, who, which sites, what's the backlog?") with natural-language SQL. A
+**Supervisor** routes across both — the Databricks pattern for combining structured and
+unstructured data access.
+
 ## Example
 
 | | |
 |---|---|
 | **Org** | A roadside truck-screening equipment operator (weigh-in-motion scales, plate/DOT readers, inspection cameras) running sites across US states and Canadian provinces |
-| **Problem** | A decade of ServiceNow troubleshooting history is effectively write-only. The engineer who solved this exact failure two years ago has moved on; their ticket is unfindable among thousands, so the team re-diagnoses from scratch. |
+| **Corpus** | A decade of ServiceNow R&D troubleshooting tickets across those sites — the write-only history this blueprint makes searchable |
 | **Ask** | "A WIM site is reporting 0 weights, have we seen this before?" → the closest prior cases **with ticket numbers**, software/config causes separated from hardware, lowest-effort-first steps. |
 | **Impact** | Time-to-diagnosis drops from "search ServiceNow and hope" to one cited answer. Expert-finding and triage become SQL questions instead of tribal knowledge. |
 
