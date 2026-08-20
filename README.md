@@ -117,27 +117,28 @@ The question workload is characterized by five query archetypes drawn from the e
 
 ### Logical View
 
-At the logical level there are two ingestion paths off the same ServiceNow source and three inputs into the Supervisor:
+At the logical level a single enrichment path turns the ServiceNow source into one structured table that **both** retrieval engines read, and the Supervisor takes three inputs (KA, Genie, glossary):
 
 ```mermaid
 graph LR
     SN[ServiceNow<br/>R&D tickets]
-    EXTRACT[ai_extract]
+    EXTRACT[ai_query<br/>extract + summarize]
     STRUCT[Structured<br/>ticket table]
     GENIE[Genie]
     KA[index / KA]
     GLOSS[Glossary]
     SUP[Supervisor]
 
-    SN --> EXTRACT --> STRUCT --> GENIE
-    SN --> KA
+    SN --> EXTRACT --> STRUCT
+    STRUCT --> GENIE
+    STRUCT --> KA
 
     KA --> SUP
     GENIE --> SUP
     GLOSS --> SUP
 ```
 
-`ai_extract` turns raw tickets into a structured table that **Genie** queries with NL→SQL; the same tickets are indexed for semantic retrieval by the **KA**. The **Supervisor** orchestrates KA, Genie, and the **Glossary** — the glossary being the governed controlled vocabulary. The detailed component diagram below expands each of these into the actual Databricks assets.
+One `ai_query` call turns raw tickets into a structured table — it both **extracts** the canonical enum columns (systems, vendors, problem category, root cause, resolution type) and **summarizes** the free-text description, segmenting it by meaning into `summary` / `customer_impact` / `troubleshooting` / `recommendation`. **Both** engines then read that one table: **Genie** queries its structured columns with NL→SQL, while the **KA** indexes the same rows' pre-composed content column for semantic retrieval with citations. The **Supervisor** orchestrates KA, Genie, and the **Glossary** — the glossary being the governed controlled vocabulary. The detailed component diagram below expands each of these into the actual Databricks assets.
 
 ### Component Diagram
 
@@ -232,17 +233,16 @@ assets, not as an application source tree. The bundle root (`databricks.yml`) in
 │   ├── notebooks/            Serverless notebook tasks: enrich.py (gold enrichment) +
 │   │                         serving.py (plain-Delta rd_tasks_serving + analytics + verify);
 │   │                         enrich_recipe.py is the shared, I/O-free recipe they import.
-│   ├── deploy/               Job-task scripts: parse_tickets, load_tables, build_glossary,
-│   │                         build_serving_table (LOCAL analytics + verify CLI), build_serving_agents
-│   │                         (KA), build_supervisor (MAS), frontdoor_deploy, env, preflight,
-│   │                         and the test_* harnesses + json/md inputs
-│   └── pipeline/
-│       └── transformations/  Lakeflow pipeline: enrich_recipe (shared recipe),
-│                             gold_enrichment (streaming ai_query), serving (MV, CDF)
+│   └── deploy/               Job-task scripts: parse_tickets, load_tables, build_glossary,
+│                             build_serving_table (LOCAL analytics + verify CLI), build_ka +
+│                             build_serving_agents (KA over rd_tasks_serving), build_supervisor
+│                             (MAS), render_genie (renders the Genie template), frontdoor_deploy,
+│                             env, preflight, the test_* harnesses + json/md inputs
 ├── data/servicenow/          The ticket corpus markdown (parse_tickets reads it); ships
 │                             WITH the repo so the bundle is self-contained
 ├── data_generation/          build_silver.py (silver layer) + generate.py (synthetic corpus)
-├── genie/                    genie_space.json (native DAB genie_spaces payload)
+├── genie/                    genie_space.template.json (native DAB genie_spaces payload;
+│                             rendered per catalog/schema by src/deploy/render_genie.py)
 ├── frontdoor/                FastAPI + built SPA front-door app (deployed via apps.yml)
 ├── eval/                     MLflow GenAI evaluation harness (run_eval.py)
 ├── specifications/           Component specs (01 ingest+enrich, 02 agents, 03 apps)
@@ -250,8 +250,12 @@ assets, not as an application source tree. The bundle root (`databricks.yml`) in
 ```
 
 - **`resources/` + `databricks.yml`** — the bundle. Native resources (UC schema/volume,
-  the `genie_spaces` Genie space, the front-door app, and the enrich pipeline) plus the jobs
-  that run the imperative build scripts DAB has no resource type for.
+  the `genie_spaces` Genie space, and the front-door app) plus the jobs that run the
+  imperative work DAB has no resource type for: the data pipeline (`jobs_pipeline.yml` →
+  the `rkb_data_pipeline` job) and the Agent Bricks + OBO-authz builds (`jobs_agents.yml` →
+  `rkb_agents` + `rkb_frontdoor_authz`). There is **no Lakeflow pipeline** — the KA streams
+  from `rd_tasks_serving`, which must be a plain Delta table (an MV cannot be streamed), so
+  the `serving` notebook builds it.
 - **`src/deploy/`** — the job-task scripts: bronze ingest (`parse_tickets` → `load_tables`),
   the governed `glossary` + `glossary_lookup` builder, the analytics-view + `--verify` step
   (`build_serving_table.py`), and the Agent Bricks builds DAB cannot express natively
