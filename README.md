@@ -63,39 +63,6 @@ glossary set are identical in both directions.
 
 ---
 
-## Demo Walkthrough
-
-*These acts run against the shipped example corpus (the truck-screening domain);
-the same script works verbatim once you swap in your own corpus and glossary.*
-
-**Frame:** *"Your team's last ten years of troubleshooting is sitting in
-ServiceNow. Let's ask it a question."*
-
-**Act 1 — Has this happened before? (2 min)** Ask *"A WIM site is reporting 0
-weights. Have we seen this before and what fixed it?"* The status line shows the
-routing live, then the answer names prior sites with root causes and **cites
-ticket numbers** you can click to source. Every claim carries a citation — the
-agent is instructed never to assert what it cannot ground. **Time this**: it is the
-"% of MTTR removed" input below.
-
-**Act 2 — A question semantic search cannot answer (2 min)** *"Who is our domain
-expert for WIM issues?"* — a counting question, so the Supervisor routes to Genie:
-whoever closed the most WIM tasks. Then *"Among open tasks, which should we triage
-first?"*
-
-**Act 3 — The terminology trap (2 min)** *"How many CA tasks are there?"* `CA` is
-the Controller Application — *software*, not a screening system. A naive agent
-filters the systems array and returns a confident **zero**. This one resolves `CA`
-through the glossary first, learns its category, and matches the text columns.
-
-**Act 4 — Close the governance loop (1 min)** Show the `glossary` table: term,
-category, status, approver. The enrichment enums are built from
-`status='approved'` **at run time**, so approving a term is what makes it
-extractable — no code change, no redeploy. `--drift-guard` proves the coupling
-both ways.
-
----
-
 ## Business Value — closing the loop
 
 **Faster field repair turns asset/equipment downtime back into revenue. Size it
