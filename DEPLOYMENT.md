@@ -14,6 +14,48 @@
 
 ---
 
+## Overview — what you deploy
+
+The deploy is **phased**, not a single `bundle deploy`, because two native resources have
+deploy-time dependencies on outputs that only exist after a job runs: the **Genie space**
+validates that its backing table (`rd_tasks_serving_analytics`) exists (built by
+`rkb_data_pipeline`), and the **front-door app** binds the **MAS serving endpoint** by name
+(created by `rkb_agents`). So the order is: data infra (Stage 1) → run the pipeline
+(Stage 2) → deploy Genie + the agents job and run it (Stages 2–3) → deploy the app bound to
+the endpoint and start it (Stage 4). A single `bundle deploy` fails on a cold environment.
+
+**Requirements.** Databricks CLI **v1.3.0+** and a **serverless** SQL warehouse (AI
+Functions are not available on SQL Warehouse Classic).
+
+**Common vars.** Every `bundle deploy`/`bundle run` below takes the same `--var` set; the
+stages spell it out in full, but the shorthand is:
+
+```bash
+# Defaults: catalog=main, schema=troubleshooting_knowledge_agent
+--var catalog=<CATALOG> --var schema=<SCHEMA> \
+--var app_name=<APP_NAME> --var warehouse_id=<WAREHOUSE_ID>
+```
+
+This bundle uses **no `mode: development`** name prefixing — it deploys to exactly
+`${var.catalog}.${var.schema}`. Isolate a personal deploy with a distinct `--var schema=`
+(and `--var app_name=` when sharing a workspace), not via an automatic prefix.
+
+**What exists after a full run:**
+
+| Resource | What it is |
+|---|---|
+| **Data** (`<catalog>.<schema>`) | ticket corpus, silver, gold enrichment, and `rd_tasks_serving` (+ `rd_tasks_serving_analytics`) — the one table both engines read |
+| **Knowledge Assistant** | indexed over the serving table's content column, two sources (corpus + glossary), citing via the metadata struct |
+| **Genie space** | a native DAB `genie_spaces` resource over `rd_tasks_serving_analytics` (deployed in Stage 2 once the view exists, not script-built) |
+| **Supervisor** | routes KA + Genie (by injected space id) + the `glossary_lookup` UC function |
+| **App** | front-door chat (OBO to the Supervisor) |
+
+**Idempotency.** Every stage is re-runnable. The pipeline is gated on a content hash, so a
+re-run with no new tickets does **zero** LLM work. The agent build reuses assets by display
+name, patches instructions, and attaches sources/examples only when absent.
+
+---
+
 ## Stage 0 — Preconditions
 
 ```bash
