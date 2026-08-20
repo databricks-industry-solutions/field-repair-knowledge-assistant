@@ -1,20 +1,27 @@
 # FieldFix: a Multi-Agent Knowledge Assistant for Field Troubleshooting & Repair
 
-> **What this is.** A Databricks solution template for a multi-agent knowledge
-> assistant over any organization's historical maintenance & repair troubleshooting
-> tickets. A field engineer asks a question in plain English; a **Supervisor**
-> routes it to a **Knowledge Assistant** for similar-case retrieval with real
-> ticket citations, or to **Genie** for counts, expert-finding and triage, or
-> both. The agent's controlled vocabulary comes from a **governed glossary**, not
-> from code, so a term becomes extractable by being approved, not by a deploy. The
-> domain is swappable: point it at your own ticket corpus and glossary and the
-> pipeline, agents, and app are unchanged.
+**A Databricks solution template for a multi-agent knowledge assistant over your
+organization's historical maintenance & repair troubleshooting tickets.**
+
+A field engineer asks a question in plain English; a **Supervisor** routes it to a
+**Knowledge Assistant** for similar-case retrieval with real ticket citations, or to
+**Genie** for counts, expert-finding and triage, or both. The agent's controlled
+vocabulary comes from a **governed glossary**, not from code, so a term becomes
+extractable by being approved, not by a deploy. The domain is swappable: point it at
+your own ticket corpus and glossary and the pipeline, agents, and app are unchanged.
+
+**TL;DR**
+
+- Ask in plain English → cited prior cases with **real ticket numbers**
+- A **Supervisor** routes each question to a Knowledge Assistant, Genie, or both
+- Controlled vocabulary lives in a **governed glossary**, not hardcoded in code
+- **Domain-agnostic** — swap the corpus + glossary; pipeline, agents, and app are unchanged
 
 ## The example story
 
-> The template is domain-agnostic. It ships with the worked example below so you
-> have something live to explore on day one; swap the corpus and glossary and the
-> same machinery serves any maintenance & repair operation.
+The template is domain-agnostic. It ships with the worked example below so you have
+something live to explore on day one; swap the corpus and glossary and the same
+machinery serves any maintenance & repair operation.
 
 | | |
 |---|---|
