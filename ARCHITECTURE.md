@@ -1,10 +1,10 @@
 # Architecture
 
-Architecture reference for **FieldFix**, the multi-agent field-repair knowledge
+Architecture reference for the multi-agent field-repair knowledge
 assistant. For what it is and why, see the **[README](README.md)**; to stand it up
 in your own workspace, follow **[DEPLOYMENT.md](DEPLOYMENT.md)**.
 
-FieldFix is an **integration blueprint** — a working, deployable Databricks
+This project is an **integration blueprint** — a working, deployable Databricks
 solution you point at your own maintenance & repair tickets, not a throwaway demo.
 The worked example (roadside truck-screening R&D) ships so the system is live on
 day one; swap the corpus and glossary and the same machinery serves any
@@ -12,7 +12,7 @@ maintenance & repair domain.
 
 ## System Overview
 
-FieldFix is a Databricks Agent Bricks integration blueprint — a working, deployable solution — that turns an organization's siloed ServiceNow R&D troubleshooting history into a cited, conversational knowledge agent. The example corpus that ships with the blueprint is a roadside truck-screening R&D operation; swap the corpus and glossary and the same machinery serves any maintenance & repair domain. Its input is a natural-language question from an R&D/field-support engineer facing an incomplete or open task (for example, a WIM reporting zero weights, an AUR camera failing, or an HTS web app crashing). Its output is a cited, actionable recommendation grounded in the most relevant prior cases.
+This project is a Databricks Agent Bricks integration blueprint — a working, deployable solution — that turns an organization's siloed ServiceNow R&D troubleshooting history into a cited, conversational knowledge agent. The example corpus that ships with the blueprint is a roadside truck-screening R&D operation; swap the corpus and glossary and the same machinery serves any maintenance & repair domain. Its input is a natural-language question from an R&D/field-support engineer facing an incomplete or open task (for example, a WIM reporting zero weights, an AUR camera failing, or an HTS web app crashing). Its output is a cited, actionable recommendation grounded in the most relevant prior cases.
 
 Architecturally it is a **retrieval-and-orchestration** system layered on Unity Catalog. A single canonical Delta table is the source of truth for every R&D case. Two complementary retrieval engines read that table — a **Knowledge Assistant (KA)** for semantic similar-case retrieval with citations, and a **Genie Space** for natural-language-to-SQL over structured columns. A **Multi-Agent Supervisor (MAS)** routes each question to the right engine (or fans out to both) and resolves domain jargon via a `glossary_lookup` Unity Catalog function. A brandable **Databricks One / Genie front door** puts the whole thing in front of the field-support team. The system runs entirely on Databricks serverless. Catalog and schema are bundle variables (default `main.troubleshooting_knowledge_agent`, overridable per workspace with `--var catalog=… --var schema=…`).
 

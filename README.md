@@ -1,4 +1,4 @@
-# FieldFix: a Multi-Agent Knowledge Assistant for Field Troubleshooting & Repair
+# Multi-Agent Knowledge Assistant for Field Troubleshooting & Repair
 
 **An integration blueprint — a working, deployable Databricks multi-agent knowledge
 assistant that turns your organization's historical operational records into a
