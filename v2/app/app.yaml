@@ -1,0 +1,10 @@
+command:
+  - python
+  - app.py
+
+resources:
+  - name: lakebase-fis
+    lakebase_database:
+      project: fis
+      branch: production
+      permission: CAN_CONNECT_AND_CREATE
