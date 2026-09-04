@@ -1,58 +1,66 @@
-# DEPLOYMENT — agent runbook
+# DEPLOYMENT — v2 agent runbook
 
-> **Audience: an AI agent deploying this template unattended.** Follow the stages in
-> order. Every stage has a **GATE** you must pass before continuing. If a gate
-> fails, stop and report — do not proceed to the next stage, and do not paper over a
-> failure by re-running blindly.
+> **Audience: an AI agent (or engineer) deploying this template unattended.** Follow
+> the stages in order. Every stage has a **GATE** you must pass before continuing. If
+> a gate fails, stop and report — do not proceed to the next stage, and do not paper
+> over a failure by re-running blindly.
 >
 > **Rules for this runbook**
 > 1. Never report success you have not observed. Paste the actual command output.
-> 2. A `--verify` that prints `VERIFY PASSED` is evidence. Your own reasoning is not.
+> 2. A check that prints its own `PASS`/`VERIFY PASSED` line is evidence. Your own
+>    reasoning is not.
 > 3. If a step is skipped, say which one and why.
-> 4. Long steps (KA indexing ~25 min) must be polled, not assumed. Auth can expire
->    mid-poll — see the auth note in Stage 0.
+> 4. Auth can expire mid-run — see the auth note in Stage 0.
+
+> [!NOTE]
+> **This is the v2 runbook** (Lakebase + custom LangGraph agent). The earlier v1
+> Agent Bricks flow (Knowledge Assistant + Multi-Agent Supervisor + OBO front-door
+> app) is gone. For the architecture, see **[ARCHITECTURE.md](ARCHITECTURE.md)**;
+> the v2-specific companion docs live under
+> **[`v2/docs/`](v2/docs/DEPLOYMENT_V2.md)**.
 
 ---
 
 ## Overview — what you deploy
 
-The deploy is **phased**, not a single `bundle deploy`, because two native resources have
-deploy-time dependencies on outputs that only exist after a job runs: the **Genie space**
-validates that its backing table (`rd_tasks_serving_analytics`) exists (built by
-`rkb_data_pipeline`), and the **front-door app** binds the **MAS serving endpoint** by name
-(created by `rkb_agents`). So the order is: data infra (Stage 1) → run the pipeline
-(Stage 2) → deploy Genie + the agents job and run it (Stages 2–3) → deploy the app bound to
-the endpoint and start it (Stage 4). A single `bundle deploy` fails on a cold environment.
+The deploy has four stages:
 
-**Requirements.** Databricks CLI **v1.3.0+** and a **serverless** SQL warehouse (AI
-Functions are not available on SQL Warehouse Classic).
+1. **Data pipeline** (the existing Databricks Asset Bundle) — ingest the ticket corpus,
+   run the `ai_query` enrichment, and stand up the **Genie space**. This produces the
+   enriched rows that both the Lakebase retriever and Genie read.
+2. **Lakebase** — create the `fis_tasks` Postgres table with its `pgvector` and GIN
+   indexes, then embed and load the enriched rows into it.
+3. **Agent test** — run the v2 test notebook against the live Lakebase + Genie +
+   glossary before exposing anything to users.
+4. **Gradio app** — deploy the `fis-v2` Databricks App (which runs the LangGraph agent
+   in-process) and grant its service principal a Lakebase role.
 
-**Common vars.** Every `bundle deploy`/`bundle run` below takes the same `--var` set; the
-stages spell it out in full, but the shorthand is:
+**Requirements.**
 
-```bash
-# Defaults: catalog=main, schema=troubleshooting_knowledge_agent
---var catalog=<CATALOG> --var schema=<SCHEMA> \
---var app_name=<APP_NAME> --var warehouse_id=<WAREHOUSE_ID>
-```
-
-This bundle uses **no `mode: development`** name prefixing — it deploys to exactly
-`${var.catalog}.${var.schema}`. Isolate a personal deploy with a distinct `--var schema=`
-(and `--var app_name=` when sharing a workspace), not via an automatic prefix.
-
-**What exists after a full run:**
-
-| Resource | What it is |
+| Requirement | Detail |
 |---|---|
-| **Data** (`<catalog>.<schema>`) | ticket corpus, silver, gold enrichment, and `rd_tasks_serving` (+ `rd_tasks_serving_analytics`) — the one table both engines read |
-| **Knowledge Assistant** | indexed over the serving table's content column, two sources (corpus + glossary), citing via the metadata struct |
-| **Genie space** | a native DAB `genie_spaces` resource over `rd_tasks_serving_analytics` (deployed in Stage 2 once the view exists, not script-built) |
-| **Supervisor** | routes KA + Genie (by injected space id) + the `glossary_lookup` UC function |
-| **App** | front-door chat (OBO to the Supervisor) |
+| Databricks CLI | **v1.3.0+** (genie_spaces + app resource bindings) |
+| Serverless SQL warehouse | AI Functions do **not** run on SQL Warehouse Classic |
+| Lakebase project | project `fis`, branch `production`, endpoint `primary` (adjust to yours) |
+| Serving endpoints | `databricks-gte-large-en` (embedding, 1024-dim) and `databricks-claude-sonnet-4-5` (LLM) |
+| Genie space | a configured space id for the analytics tool |
+| Unity Catalog | a schema holding the enriched rows + the approved `glossary` table |
 
-**Idempotency.** Every stage is re-runnable. The pipeline is gated on a content hash, so a
-re-run with no new tickets does **zero** LLM work. The agent build reuses assets by display
-name, patches instructions, and attaches sources/examples only when absent.
+**Where config lives.** The v2 code carries its connection config as constants in
+**two** places that must agree: `v2/agent/fis_v2_agent.py` (the notebook) and
+`v2/app/app.py` (the app). The table below is the reference set (defaults from the
+shipped example — change them for your workspace):
+
+| Parameter | Example value |
+|---|---|
+| `LAKEBASE_HOST` | `ep-long-feather-d20bt18w.database.us-east-1.cloud.databricks.com` |
+| `LAKEBASE_DB` | `databricks_postgres` |
+| `LAKEBASE_TABLE` | `fis_tasks` |
+| `EMBEDDING_MODEL` | `databricks-gte-large-en` |
+| `LLM_ENDPOINT` | `databricks-claude-sonnet-4-5` |
+| `GLOSSARY_TABLE` | `<catalog>.<schema>.glossary` |
+| `GENIE_SPACE_ID` | `01f190db953e1140b39d10f49a46aa7b` |
+| `TOP_K` | `5` |
 
 ---
 
@@ -66,45 +74,41 @@ databricks auth login --profile <PROFILE>
 databricks auth env --profile <PROFILE> | head -5
 databricks current-user me --profile <PROFILE>
 
-# 0.3 CLI version — genie_spaces and the app resource bindings need a recent CLI.
+# 0.3 CLI version.
 databricks --version          # need v1.3.0+
 
 # 0.4 Confirm a SERVERLESS SQL warehouse exists and is the one you will pass.
-#     AI Functions do NOT run on SQL Warehouse Classic.
 databricks warehouses get <WAREHOUSE_ID> --profile <PROFILE> | grep -E '"name"|"enable_serverless_compute"|"state"'
+
+# 0.5 Confirm the Lakebase endpoint resolves.
+databricks postgres get-endpoint \
+  --name projects/fis/branches/production/endpoints/primary --profile <PROFILE> \
+  | grep -E '"host"|"state"'
+
+# 0.6 Confirm the serving endpoints exist.
+databricks serving-endpoints get databricks-gte-large-en   --profile <PROFILE> | grep '"state"'
+databricks serving-endpoints get databricks-claude-sonnet-4-5 --profile <PROFILE> | grep '"state"'
 ```
 
-**GATE 0** — all four succeed, and `enable_serverless_compute` is `true`.
+**GATE 0** — all succeed, `enable_serverless_compute` is `true`, and the Lakebase
+endpoint + both serving endpoints are healthy.
 
-> **Auth model.** The build scripts authenticate via the Databricks SDK
-> (`databricks-sdk`, added to the jobs' `environments.dependencies`): **ambient**
-> credentials when they run as serverless job tasks, and the **`--profile`** you pass
-> when you run them locally (e.g. the `--verify` commands below). The CLI profile is a
-> *local* convenience only — serverless job compute has no usable named profile, so
-> nothing here shells out to `databricks --profile` for workspace calls.
+> **Auth model.** Notebook and local runs authenticate via the Databricks SDK: ambient
+> credentials on serverless compute, and the `--profile` you pass when running scripts
+> locally. Lakebase connections mint a short-lived token
+> (`w.postgres.generate_database_credential(...)`) at connect time.
 
-> **Auth expiry is a real failure mode.** A previous unattended run had its OAuth
-> refresh token expire ~137s into a 25-minute KA poll. The poller reported
-> `KA=UNKNOWN sources={}` for 8 minutes, which looked like a broken KA but was
-> blind auth errors. If you ever see `UNKNOWN` or an empty source map, check
-> `databricks auth token --profile <PROFILE>` **before** concluding anything about
-> the KA.
+> **Auth expiry is a real failure mode.** OAuth refresh tokens can expire mid-run. If a
+> Lakebase call suddenly fails with `password authentication failed`, re-check
+> `databricks auth token --profile <PROFILE>` **before** concluding the table or role
+> is broken.
 
 ---
 
-## Stage 1 — Deploy the data infra (phased deploy, part 1 of 3)
+## Stage 1 — Data pipeline (enriched rows + Genie)
 
-> **The deploy is PHASED, not one `bundle deploy`.** Two native resources have
-> deploy-time dependencies on job outputs: the **Genie space** validates that its
-> backing table (`rd_tasks_serving_analytics`) exists (built by `rkb_data_pipeline`),
-> and the **app** binds the **MAS endpoint** by name (created by `rkb_agents`). So the
-> order is: infra (Stage 1) → run pipeline + deploy Genie/agents (Stage 2) → run agents
-> (Stage 3) → deploy + start the app bound to the endpoint (Stage 4). A single
-> `bundle deploy` fails on a cold environment.
->
-> **No name prefixing.** This bundle has no `mode: development`; the deploy targets
-> exactly `${var.catalog}.${var.schema}`. Isolate a personal deploy with a distinct
-> `--var schema=` (and `--var app_name=`), not an automatic prefix.
+This is the existing Asset Bundle pipeline; v2 reuses it to produce the enriched rows
+and the Genie space. It stops short of the retired v1 agents/app resources.
 
 ```bash
 # Render the Genie space payload for your catalog/schema (DAB does not interpolate
@@ -114,257 +118,205 @@ python3 src/deploy/render_genie.py --catalog <CATALOG> --schema <SCHEMA>
 databricks bundle validate -t <TARGET>
 
 # Inspect the plan BEFORE mutating anything.
-# `bundle plan` is its own subcommand. `bundle deploy` has NO dry-run: its --plan
-# flag takes a path to a JSON plan file, it is not a preview switch.
 databricks bundle plan -t <TARGET> \
   --var catalog=<CATALOG> --var schema=<SCHEMA> --var warehouse_id=<WAREHOUSE_ID>
-```
 
-Output is a create/change/delete list, e.g.
-
-```
-create apps.frontdoor
-create genie_spaces.rkb_serving
-...
-Plan: 9 to add, 0 to change, 0 to delete, 0 unchanged
-```
-
-**STOP AND READ IT.** Anything under `create` that you know **already exists** in
-the workspace will become a **duplicate**, not an adoption — a bundle adopts an
-existing resource only when the name matches exactly. This is the single most
-likely way to make a mess here, because the apps and the Genie space may already
-have been created by the scripts directly.
-
-If you see a `create` for something that exists: stop and either reconcile the
-names or `databricks bundle deployment bind <resource_key> <existing_id> -t <TARGET>`.
-Report what you found before continuing.
-
-Also read the `delete` lines. On a re-deploy, an unexpected `delete` means the
-bundle is about to remove something you want to keep.
-
-```bash
-# Phase 1 — deploy ONLY the data infra (--select). Genie + agents deploy in Stage 2
-# (after the table exists); the app deploys in Stage 4 (after the endpoint exists).
+# Deploy the data infra + Genie space (NOT the retired v1 agents/app resources).
 databricks bundle deploy -t <TARGET> \
   --var catalog=<CATALOG> --var schema=<SCHEMA> --var warehouse_id=<WAREHOUSE_ID> \
-  --var app_name=<APP_NAME> \
   --select schemas.rkb --select volumes.glossary \
   --select jobs.rkb_data_pipeline
-```
 
-**GATE 1**
-
-```bash
-databricks bundle summary -t <TARGET>
-```
-
-Expect the 3 infra resources: `schemas.rkb`, `volumes.glossary`, and job
-`rkb_data_pipeline`. (The full bundle is 7 resources + the volume grant;
-`genie_spaces.rkb_serving` + `jobs.rkb_agents` arrive in Stage 2 and
-`apps.frontdoor` + `jobs.rkb_frontdoor_authz` in Stage 4.) Missing infra → stop.
-
----
-
-## Stage 2 — Data pipeline
-
-```bash
+# Run the pipeline: parse_tickets -> load_tables -> {build_silver, glossary} -> enrich -> serving.
 databricks bundle run rkb_data_pipeline -t <TARGET>
 
-# Phase 2 deploy — the analytics view now exists, so the Genie space validates, and the
-# agents job can resolve ${resources.genie_spaces.rkb_serving.id}.
+# The analytics view now exists, so deploy the Genie space.
 databricks bundle deploy -t <TARGET> \
   --var catalog=<CATALOG> --var schema=<SCHEMA> --var warehouse_id=<WAREHOUSE_ID> \
-  --var app_name=<APP_NAME> \
-  --select genie_spaces.rkb_serving --select jobs.rkb_agents
+  --select genie_spaces.rkb_serving
 ```
 
-Tasks in order: `parse_tickets` → `load_tables` → {`build_silver`, `glossary`} →
-`enrich` → `serving`. Bronze (`parse_tickets`/`load_tables`), the
-silver layer (`data_generation/build_silver.py` → `rd_tasks_silver` +
-`rd_task_note_entries`), and the SME-governed `glossary` are `spark_python_task`s;
-`glossary` mines the vocabulary from bronze `rnd_tickets` so it is available before
-enrichment. **`enrich` and `serving` are serverless `notebook_task` notebooks**
-(`src/notebooks/enrich.py`, `src/notebooks/serving.py`). `enrich` builds
-`rd_tasks_gold_enrichment` with `ai_query`, **incremental** via a `content_hash` LEFT
-ANTI JOIN + `MERGE`: it calls the LLM only on new/changed tickets, so a first run budgets
-~10 min and a re-run with no new tickets does **zero `ai_query` work** (0 `todo` rows →
-0 model calls → MERGE skipped). `serving` then builds `rd_tasks_serving` as a **plain
-Delta table** (CDF on) — silver ⋈ `rnd_tickets` ⋈ enrichment ⋈ note counts, with
-`ka_content` composed — so the KA can *stream* from it (a materialized view cannot be
-streamed), then creates the Genie analytics views (`rd_tasks_serving_analytics` and the
-compat alias `rd_tasks_gold_analytics`) and runs `verify()`. A changed ticket re-enriches
-on the next run because its `content_hash` changes (the anti-join picks it up and the
-`MERGE` updates it by `number`).
+`enrich` builds `rd_tasks_gold_enrichment` with `ai_query`, **incremental** via a
+`content_hash` anti-join + `MERGE` (LLM runs only on new/changed tickets). `serving`
+composes the enriched serving rows (`summary` / `customer_impact` / `troubleshooting`
+/ `recommendation`, plus `problem_category` / `root_cause` / `resolution_type`) and the
+Genie analytics view. These enriched columns are the **source for both** the Lakebase
+load (Stage 2) and the Genie space.
 
-Poll the run (`databricks jobs get-run`, not the CLI stream) and pull failed-task output
-with `jobs get-run-output`. The `serving` notebook's `verify()` gates data quality
-(`ka_content` non-empty, `metadata.file_path` present, enrichment populated, 1:1 grain,
-**and that `rd_tasks_serving` is a plain table, not a view/MV**); GLO-02 is enforced at
-generation because the `ai_query` enum is built from the approved glossary at run time.
+> [!IMPORTANT]
+> v2 no longer builds a streamable KA source table. The `_metadata`-struct / CDF /
+> "plain table not MV" constraints that governed v1's serving table **do not apply** to
+> the Lakebase path — Lakebase is loaded by a plain read of the enriched rows.
 
-**GATE 2 — the serving table must satisfy BOTH engines.**
+**GATE 1** — the enriched rows and glossary exist:
 
 ```bash
-python3 src/deploy/build_serving_table.py --profile <PROFILE> --verify \
-  --catalog <CATALOG> --schema <SCHEMA> --warehouse-id <WAREHOUSE_ID>
+# Enriched rows present.
+databricks sql query --warehouse-id <WAREHOUSE_ID> --profile <PROFILE> \
+  -q "SELECT count(*) FROM <CATALOG>.<SCHEMA>.rd_tasks_gold_enrichment"
+
+# Glossary has approved terms (the agent loads these at startup).
+databricks sql query --warehouse-id <WAREHOUSE_ID> --profile <PROFILE> \
+  -q "SELECT count(*) FROM <CATALOG>.<SCHEMA>.glossary WHERE status='approved'"
 ```
 
-Requires the line `VERIFY PASSED`. (The `serving` notebook already runs this same
-`verify()` in-job at the end of Stage 2; this local re-run is a convenience.) The checks
-that block Stage 3:
+Both counts must be non-zero. An empty glossary means the agent's `glossary_lookup`
+tool comes up empty at startup.
 
-| Check | Why it blocks |
-|---|---|
-| `is a TABLE, not a view/MV` | KA sync streams from the table; streaming from an MV fails with `STREAMING_FROM_MATERIALIZED_VIEW` (CDF alone does not make an MV streamable) |
-| `metadata struct present` | KA attach fails with `missing required column '_metadata'` |
-| `CDF enabled` | KA attach fails: *"must either be a streaming table or have Change Data Feed enabled"* |
-| `ka_content present` | `file_col` needs exactly one pre-composed column |
+---
 
-Also confirm the glossary actually has approved terms — enrichment enums are built
-from them at run time, and an empty glossary means an uncontrolled vocabulary:
+## Stage 2 — Lakebase (build & load `fis_tasks`)
 
-```bash
-python3 src/deploy/build_glossary.py --profile <PROFILE> --verify-only \
-  --catalog <CATALOG> --schema <SCHEMA> --warehouse-id <WAREHOUSE_ID>
-```
+Create the retriever's table and indexes, then embed and load the Stage 1 enriched
+rows into it.
 
-**GATE 2b — GLO-02 coupling.** The `enrich` notebook builds the `ai_query`
-`systems_involved`/`vendors` enums from `glossary WHERE status='approved'` at run time
-(`enrich_recipe.parse_vocab`), so the enum cannot contain a term the glossary has not
-approved — the coupling holds by construction, not by a separate check. To spot-check that
-no emitted system value is outside the approved set, run the two-way EXCEPT directly:
+> [!WARNING]
+> **This stage is not yet scripted in the repo.** The table DDL below is the schema
+> from [`v2/docs/ARCHITECTURE_V2.md`](v2/docs/ARCHITECTURE_V2.md); the agent notebook
+> (`v2/agent/fis_v2_agent.py`) currently **assumes `fis_tasks` already exists and is
+> populated** — its connection cell only runs `SELECT COUNT(*)`. There is no
+> `CREATE TABLE` or embed-and-load step in the committed code. Until a loader is added,
+> run the DDL below by hand and load the rows with your own ingest step, then treat the
+> GATE as the real check. (Reconcile this gap before claiming an unattended deploy.)
+
+Connect to Lakebase (psycopg, token from the SDK) and create the table + indexes:
 
 ```sql
-(SELECT DISTINCT explode(systems_involved) FROM <cat>.<schema>.rd_tasks_gold_enrichment)
-EXCEPT (SELECT term FROM <cat>.<schema>.glossary WHERE status='approved' AND category='system')
+CREATE TABLE IF NOT EXISTS fis_tasks (
+    number             TEXT PRIMARY KEY,
+    title              TEXT,
+    parent             TEXT,
+    assignment_group   TEXT,
+    assigned_to        TEXT,
+    priority_level     INT,
+    priority_label     TEXT,
+    status             TEXT,
+    workflow_status    TEXT,
+    is_closed          BOOL,
+    location           TEXT,
+    location_state     TEXT,
+    location_highway   TEXT,
+    location_direction TEXT,
+    location_site      TEXT,
+    site_key           TEXT,
+    duration_days      INT,
+    problem_category   TEXT,
+    summary            TEXT,
+    customer_impact    TEXT,
+    troubleshooting    TEXT,
+    recommendation     TEXT,
+    root_cause         TEXT,
+    resolution         TEXT,
+    resolution_type    TEXT,
+    lakebase_text      TEXT,
+    lakebase_vector    vector(1024)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fis_tasks_vector
+    ON fis_tasks USING ivfflat (lakebase_vector vector_cosine_ops) WITH (lists=10);
+
+CREATE INDEX IF NOT EXISTS idx_fis_tasks_text
+    ON fis_tasks USING gin (to_tsvector('english', lakebase_text));
 ```
 
-An empty result means no drift. (A non-empty *reverse* direction — approved terms unused
-by any ticket — is fine, not a failure.)
+Then load: read the enriched rows from `<CATALOG>.<SCHEMA>` (Stage 1), compose
+`lakebase_text` (the acronym-expanded content), embed it with
+`databricks-gte-large-en` (1024-dim), and upsert each row into `fis_tasks` keyed on
+`number`.
+
+**GATE 2** — the table is populated and both indexes exist:
+
+```sql
+SELECT count(*) FROM fis_tasks;                 -- must be > 0 and match the enriched row count
+SELECT count(*) FROM fis_tasks WHERE lakebase_vector IS NOT NULL;  -- must equal the row count
+SELECT indexname FROM pg_indexes WHERE tablename = 'fis_tasks';    -- expect idx_fis_tasks_vector + idx_fis_tasks_text
+```
 
 ---
 
-## Stage 3 — Agents (the long one)
+## Stage 3 — Test the agent
 
-```bash
-databricks bundle run rkb_agents -t <TARGET>
-```
-
-Two tasks: `serving_agents` (KA + Genie) then `supervisor`.
-
-**Expect ~25 minutes.** A measured run reached `ACTIVE` with both sources
-`UPDATED` at **1434s**. Poll; do not assume. Healthy intermediate output looks like:
+Run the v2 test notebook end-to-end against the live Lakebase + Genie + glossary.
 
 ```
-[KA] t+400s KA=CREATING sources={'rd_tasks_serving_corpus': 'UPDATING', 'rkb_glossary': 'UPDATING'}
+v2/tests/fis_v2_tests.py — 8 suites, 35+ tests:
+  Suite 1: Lakebase Connectivity (6)
+  Suite 2: Embedding Model (4)
+  Suite 3: Vector Search (4)
+  Suite 4: Retriever Tool (4)
+  Suite 5: LangGraph Agent — 3 tools (4)
+  Suite 6: Edge Cases & Data Quality (5)
+  Suite 7: Glossary Lookup (8)
+  Suite 8: Genie Query (3)
 ```
 
-`CREATING`/`UPDATING` with no error is **normal**, not stuck. What is *not* normal:
-
-| Symptom | Meaning | Action |
-|---|---|---|
-| `KA=UNKNOWN sources={}` | blind auth errors, not a KA problem | re-auth (Stage 0), re-run with `--verify` |
-| `FAILED_UPDATE` on a source | real indexing failure | stop, report the source and its state |
-| glossary source `NOT_FOUND` | `files.path` was given a FILE | must be the **directory** path |
-
-**GATE 3**
-
-```bash
-python3 src/deploy/build_serving_agents.py --profile <PROFILE> --verify \
-  --catalog <CATALOG> --schema <SCHEMA> --warehouse-id <WAREHOUSE_ID>
-```
-
-Requires **11/11 PASS**. Two checks deserve attention because they catch a silent
-quality regression rather than an outage:
-
-- **`instructions MATCH the live KA`** — the KA's instructions are what produce
-  cited, actionable answers. Measured on byte-identical indexed content: the tuned
-  four-rule instructions give **6.0** avg citations; a vaguer paragraph form gives
-  **1.2**, with 0/5 answers carrying a `Sources:` line. A KA that returns polite,
-  uncited prose is almost always an instructions problem, not retrieval.
-- **`examples attached == 8`** — the instructions end with *"See the labeled
-  Examples"*. Zero examples points the model at guidance that does not exist.
+**GATE 3** — every suite passes. A failure in Suite 1/2 is infra (Lakebase or the
+embedding endpoint); 3/4 is retrieval; 5 is agent wiring; 7/8 are the glossary/Genie
+tools. Do not deploy the app on a red suite.
 
 ---
 
-## Stage 4 — Front-door app
+## Stage 4 — Deploy the Gradio app
+
+The app (`v2/app/`) runs the LangGraph agent in-process behind a service principal. It
+declares its Lakebase dependency in `app.yaml` (resource `lakebase-fis`,
+`CAN_CONNECT_AND_CREATE`).
 
 ```bash
-# Phase 3 deploy — bind the app to the MAS endpoint rkb_agents created in Stage 3.
-# <ENDPOINT> is the serving-endpoint name that job reported.
-databricks bundle deploy -t <TARGET> \
-  --var catalog=<CATALOG> --var schema=<SCHEMA> --var warehouse_id=<WAREHOUSE_ID> \
-  --var app_name=<APP_NAME> --var mas_endpoint_name=<ENDPOINT> \
-  --select apps.frontdoor --select jobs.rkb_frontdoor_authz
+# 4.1 Create the app.
+databricks apps create fis-v2 --profile <PROFILE>
 
-# OBO scopes + the serving-endpoint resource binding — the DAB App resource cannot
-# express user_api_scopes, so frontdoor_deploy.py owns it (bound to --var mas_endpoint_name).
-databricks bundle run rkb_frontdoor_authz -t <TARGET> \
-  --var catalog=<CATALOG> --var schema=<SCHEMA> --var warehouse_id=<WAREHOUSE_ID> \
-  --var app_name=<APP_NAME> --var mas_endpoint_name=<ENDPOINT>
+# 4.2 Sync the app source to the workspace, then deploy from that path.
+databricks apps deploy fis-v2 --profile <PROFILE> \
+  --source-code-path /Workspace/Users/<your-email>/field-repair-knowledge-assistant/v2/app
 
-# The app needs an explicit run to start.
-databricks bundle run frontdoor -t <TARGET> \
-  --var catalog=<CATALOG> --var schema=<SCHEMA> --var warehouse_id=<WAREHOUSE_ID> \
-  --var app_name=<APP_NAME>
+# 4.3 Read the app's service principal id (needed for the Lakebase grant).
+databricks apps get fis-v2 --profile <PROFILE> --output JSON | jq -r .service_principal_client_id
 ```
 
-**GATE 4**
+Grant that service principal a Lakebase role, then table access:
 
 ```bash
-databricks apps get <APP_NAME> --profile <PROFILE> | grep -E '"state"|"url"'
+databricks postgres create-role projects/fis/branches/production \
+  --role-id fis-v2-sp \
+  --json '{"spec": {"postgres_role": "<SP_CLIENT_ID>", "identity_type": "SERVICE_PRINCIPAL"}}' \
+  --profile <PROFILE>
 ```
 
-Must be `RUNNING`. Then confirm the OBO wiring actually landed — this is the
-step DAB cannot do, so it is the step most likely to be silently missing:
+```sql
+GRANT USAGE ON SCHEMA public TO "<SP_CLIENT_ID>";
+GRANT SELECT ON fis_tasks   TO "<SP_CLIENT_ID>";
+```
+
+> **Important:** Register the role via `w.postgres.create_role()` (SDK) or the CLI —
+> **not** SQL `CREATE ROLE`. Lakebase OAuth requires roles registered through the
+> control plane.
+
+The app's service principal also needs read access to the `glossary` UC table (loaded
+at startup) and query access to the Genie space.
+
+**GATE 4** — the app is running and can reach Lakebase:
 
 ```bash
-databricks apps get <APP_NAME> --profile <PROFILE> \
-  | grep -A3 -E 'user_api_scopes|resources'
+databricks apps get fis-v2 --profile <PROFILE> | grep -E '"state"|"url"'
 ```
 
-Expect `serving.serving-endpoints` in the scopes and the MAS endpoint bound
-`CAN_QUERY`.
-
-> **`curl` on the app URL returns 302, and that is CORRECT.** These are OBO apps;
-> an unauthenticated request is supposed to redirect to SSO. Do **not** report 302
-> as a failure. It also means you cannot verify the UI yourself — see Stage 6.
+Must be `RUNNING`. Then open the URL in a browser (an unauthenticated `curl` gets an
+SSO redirect, which is expected — a human must confirm the chat renders) and ask a
+retrieval question; a `password authentication failed for user '<UUID>'` in the app
+logs means the SP is missing its Lakebase role (redo the grant above).
 
 ---
 
-## Stage 5 — Functional tests
-
-Run all three. These query the live agents, so they cost tokens and take minutes.
-
-```bash
-python3 src/deploy/test_ka.py         --profile <PROFILE>   # retrieval + citations
-python3 src/deploy/test_genie.py      --profile <PROFILE>   # NL->SQL correctness
-python3 src/deploy/test_supervisor.py --profile <PROFILE>   # routing across archetypes
-```
-
-**GATE 5** — all three report pass. `test_genie.py` is the one that catches the
-`array_contains` vs `ILIKE` category bug; `test_supervisor.py` catches
-silent-redirect routing failures.
-
-### Optional: scored evaluation
-
-```bash
-python3 eval/run_eval.py --profile <PROFILE>
-```
-
-Scores correctness, relevance, citation-groundedness and plausible-reasoning via
-MLflow. Run this if the KA's indexed content or instructions changed — prior scores
-describe the prior configuration and stop being valid.
-
----
-
-## Stage 6 — Report the run
+## Stage 5 — Report the run
 
 Produce a table of every gate with its **observed** result, and state plainly what you
-could **not** verify. At minimum, the app UI needs a human: `curl` gets a 302 SSO
-redirect, so a person with a browser session must confirm the chat renders, the progress
-line ticks through its stages, the citation chips are clickable, and the four demo acts in
-`README.md` all work. Note anything you skipped, with the reason.
+could **not** verify. At minimum, note that:
+
+- Stage 2's build+load is currently manual (unscripted) — say exactly how you created
+  and loaded `fis_tasks`, and the final row/embedding counts.
+- The app UI needs a human — `curl` gets a 302 SSO redirect, so a person with a browser
+  session must confirm the chat renders and returns cited task numbers.
 
 ---
 
@@ -372,24 +324,29 @@ line ticks through its stages, the citation chips are clickable, and the four de
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `missing required column '_metadata'` | KA source table has no metadata struct | rebuild the serving table (Stage 2) |
-| `must either be a streaming table or have CDF enabled` | pointed the KA at a **view**, or CDF off | KA sources must be physical tables with CDF |
-| `Array must have size 1, but has size 2` | passed two columns to `file_col` | pre-compose one content column |
-| `Duplicate knowledge source paths` | that table is already attached | reuse the existing source; do not re-attach |
-| Glossary source `NOT_FOUND` | gave `files.path` a file | use the **directory** |
-| Answers uncited / no `Sources:` line | instruction drift | Gate 3 instruction-parity check |
-| Answer appears 2-3x with `<name>` tags | rendering the whole routing trace | render the final turn only |
-| Genie returns 0 for a known term | non-`system` term hit `array_contains` | resolve category first, use `ILIKE` |
-| App 504 on a hard question | held one request past the 120s proxy limit | submit/poll, never one blocking call |
-| `KA=UNKNOWN`, empty source map | expired auth mid-poll | re-auth, re-run `--verify` |
+| `password authentication failed for user '<UUID>'` | App SP missing its Lakebase role | Create the role via SDK/CLI (Stage 4), then `GRANT` |
+| `the query has N placeholders but M parameters were passed` | SQL parameter mismatch in hybrid search with filters | Check `text_where` / `all_params` construction in `fis_knowledge_search` |
+| `relation "fis_tasks" does not exist` | Stage 2 table never created | Run the DDL in Stage 2 |
+| Vector search returns nothing / errors on `<=>` | `lakebase_vector` unpopulated or index missing | Confirm GATE 2 counts and `idx_fis_tasks_vector` |
+| `Genie query timed out` | Genie space warehouse idle | Retry — the warehouse auto-starts |
+| `Glossary is not available` | App couldn't query the glossary table at startup | Check SQL warehouse access + SP permission on the UC `glossary` table |
+| Agent answers without citing task numbers | Retriever returned nothing, or system prompt drift | Verify Stage 3 Suite 4/5; check `SYSTEM_PROMPT` in the notebook/app agree |
 
 ## Teardown
 
 ```bash
+# Remove the app.
+databricks apps delete fis-v2 --profile <PROFILE>
+
+# Remove the Lakebase role (control-plane registered).
+databricks postgres delete-role projects/fis/branches/production --role-id fis-v2-sp --profile <PROFILE>
+
+# Drop the Lakebase table (via psql/psycopg).
+#   DROP TABLE IF EXISTS fis_tasks;
+
+# Remove the data-pipeline bundle resources.
 databricks bundle destroy -t <TARGET> --auto-approve
 ```
 
-**Incomplete by design.** This does **not** remove the Knowledge Assistant or the
-Supervisor — DAB has no resource type for them, so they are script-created and must
-be deleted via the Agent Bricks UI or API. UC tables created by the jobs also
-survive. Report both as remaining.
+Report anything that survives: the Lakebase `fis` project itself, the Genie space if it
+was created outside the bundle, and any UC tables created by the pipeline jobs.
