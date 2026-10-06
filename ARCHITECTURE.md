@@ -1,8 +1,8 @@
 # Architecture
 
-Architecture reference for the multi-agent field-repair knowledge
-assistant. For what it is and why, see the **[README](README.md)**; to stand it up
-in your own workspace, follow **[DEPLOYMENT.md](DEPLOYMENT.md)**.
+Architecture reference for the field-repair knowledge assistant. For what it is
+and why, see the **[README](README.md)**; to stand it up in your own workspace,
+follow **[DEPLOYMENT.md](DEPLOYMENT.md)**.
 
 This project is an **integration blueprint** — a working, deployable Databricks
 solution you point at your own maintenance & repair tickets, not a throwaway demo.
@@ -10,35 +10,68 @@ The worked example (roadside truck-screening R&D) ships so the system is live on
 day one; swap the corpus and glossary and the same machinery serves any
 maintenance & repair domain.
 
+> [!NOTE]
+> **v2 architecture.** The current system is a **custom LangGraph agent** backed by
+> **Lakebase (Postgres + pgvector)** for retrieval. This replaces the earlier v1
+> Agent Bricks stack — the **Knowledge Assistant (KA)** and **Multi-Agent
+> Supervisor (MAS)** are gone. What carried over: the Unity Catalog ingest +
+> `ai_query` enrichment path, the governed glossary, and the Genie space for
+> quantitative analytics. The v2-specific docs live under
+> [`v2/docs/`](v2/docs/ARCHITECTURE_V2.md).
+
 ## System Overview
 
-This project is a Databricks Agent Bricks integration blueprint — a working, deployable solution — that turns an organization's siloed ServiceNow R&D troubleshooting history into a cited, conversational knowledge agent. The example corpus that ships with the blueprint is a roadside truck-screening R&D operation; swap the corpus and glossary and the same machinery serves any maintenance & repair domain. Its input is a natural-language question from an R&D/field-support engineer facing an incomplete or open task (for example, a WIM reporting zero weights, an AUR camera failing, or an HTS web app crashing). Its output is a cited, actionable recommendation grounded in the most relevant prior cases.
+This project turns an organization's siloed ServiceNow R&D troubleshooting history
+into a cited, conversational knowledge agent. The example corpus that ships with the
+blueprint is a roadside truck-screening R&D operation; swap the corpus and glossary
+and the same machinery serves any maintenance & repair domain. Its input is a
+natural-language question from an R&D/field-support engineer facing an incomplete or
+open task (for example, a WIM reporting zero weights, an AUR camera failing, or an
+HTS web app crashing). Its output is a cited, actionable recommendation grounded in
+the most relevant prior cases.
 
-Architecturally it is a **retrieval-and-orchestration** system layered on Unity Catalog. A single canonical Delta table is the source of truth for every R&D case. Two complementary retrieval engines read that table — a **Knowledge Assistant (KA)** for semantic similar-case retrieval with citations, and a **Genie Space** for natural-language-to-SQL over structured columns. A **Multi-Agent Supervisor (MAS)** routes each question to the right engine (or fans out to both) and resolves domain jargon via a `glossary_lookup` Unity Catalog function. A brandable **Databricks One / Genie front door** puts the whole thing in front of the field-support team. The system runs entirely on Databricks serverless. Catalog and schema are bundle variables (default `main.troubleshooting_knowledge_agent`, overridable per workspace with `--var catalog=… --var schema=…`).
+Architecturally it is a **retrieval-and-orchestration** system layered on Unity
+Catalog and Lakebase. A canonical Delta table is enriched **once** by `ai_query`;
+the enriched rows are then embedded and loaded into a **Lakebase** table
+(`fis_tasks`) that holds both a `pgvector` embedding column and a full-text `tsvector`
+index. A **custom LangGraph agent** (`create_react_agent`, powered by
+`databricks-claude-sonnet-4-5` via `ChatDatabricks`) orchestrates three tools:
+a **hybrid-search retriever** over Lakebase (vector + full-text), an **in-memory
+glossary lookup** (94 approved domain terms), and a **Genie query** tool for
+natural-language-to-SQL analytics. A **Gradio chat app**, deployed as a Databricks
+App under a service principal, is the front door. The system runs on Databricks
+serverless plus a Lakebase endpoint.
 
-The question workload is characterized by five query archetypes drawn from the example acceptance script: terminology matching, domain-expert finding, task complexity/delay analysis, priority triage of open tasks, and site-specific recurring-issue detection. Semantic archetypes route to KA; structured/aggregate archetypes route to Genie; hybrid archetypes fan out to both.
+The question workload is characterized by three routing signals the agent's system
+prompt encodes: **qualitative** troubleshooting/root-cause/resolution questions route
+to the Lakebase retriever; **unknown terms and acronyms** route to the glossary (often
+chained before a search); and **quantitative** counting/ranking/aggregation questions
+route to Genie.
 
 ## Logical View
 
-At the logical level a single enrichment path turns the ServiceNow source into one structured table that **both** retrieval engines read, and the Supervisor takes three inputs (KA, Genie, glossary):
+A single enrichment path turns the ServiceNow source into structured, enriched rows;
+those rows are embedded and loaded into Lakebase; and the agent takes three tool
+inputs (Lakebase retriever, glossary, Genie):
 
 ```mermaid
 graph LR
     SN[ServiceNow<br/>R&D tickets]
     EXTRACT[ai_query<br/>extract + summarize]
-    STRUCT[Structured<br/>ticket table]
+    STRUCT[Enriched<br/>ticket rows]
+    EMBED[Embed<br/>gte-large-en]
+    LB[(Lakebase<br/>pgvector + GIN)]
     GENIE[Genie]
-    KA[index / KA]
     GLOSS[Glossary]
-    SUP[Supervisor]
+    AGENT[LangGraph agent]
 
     SN --> EXTRACT --> STRUCT
+    STRUCT --> EMBED --> LB
     STRUCT --> GENIE
-    STRUCT --> KA
 
-    KA --> SUP
-    GENIE --> SUP
-    GLOSS --> SUP
+    LB --> AGENT
+    GENIE --> AGENT
+    GLOSS --> AGENT
 
     classDef source fill:#dbeafe,stroke:#2563eb,stroke-width:1px,color:#0b1f44;
     classDef enrich fill:#fde68a,stroke:#d97706,stroke-width:1px,color:#3a2400;
@@ -48,114 +81,162 @@ graph LR
     classDef sup    fill:#fecaca,stroke:#dc2626,stroke-width:1px,color:#450a0a;
 
     class SN source;
-    class EXTRACT enrich;
-    class STRUCT table;
-    class GENIE,KA engine;
+    class EXTRACT,EMBED enrich;
+    class STRUCT,LB table;
+    class GENIE engine;
     class GLOSS gloss;
-    class SUP sup;
+    class AGENT sup;
 ```
 
-One `ai_query` call turns raw tickets into a structured table — it both **extracts** the canonical enum columns (systems, vendors, problem category, root cause, resolution type) and **summarizes** the free-text description, segmenting it by meaning into `summary` / `customer_impact` / `troubleshooting` / `recommendation`. **Both** engines then read that one table: **Genie** queries its structured columns with NL→SQL, while the **KA** indexes the same rows' pre-composed content column for semantic retrieval with citations. The **Supervisor** orchestrates KA, Genie, and the **Glossary** — the glossary being the governed controlled vocabulary. The detailed component diagram below expands each of these into the actual Databricks assets.
+One `ai_query` call turns raw tickets into structured rows — it both **extracts** the
+canonical enum columns (systems, vendors, problem category, root cause, resolution
+type) and **summarizes** the free-text description, segmenting it by meaning into
+`summary` / `customer_impact` / `troubleshooting` / `recommendation`. Those enriched
+rows fork two ways: they are embedded with `databricks-gte-large-en` and loaded into
+**Lakebase** for hybrid semantic + full-text retrieval, and they back the **Genie**
+space for NL→SQL analytics. The **LangGraph agent** orchestrates the Lakebase
+retriever, Genie, and an in-memory **glossary** loaded from a governed Unity Catalog
+table. The detailed component diagram below expands each of these into the actual
+Databricks assets.
 
 ## Component Diagram
 
 ```mermaid
 graph TD
-    subgraph Ingestion
-        MD[ServiceNow markdown samples<br/>open / incomplete / complete tasks]
-        SYN[Synthetic ticket generator<br/>ai_query + Faker taxonomy]
+    USER[Field engineer<br/>~10 SOS users]
+    APP[Gradio app<br/>Databricks App: fis-v2<br/>service principal]
+
+    subgraph "Custom agent"
+        AGENT[LangGraph create_react_agent<br/>databricks-claude-sonnet-4-5]
     end
 
-    subgraph "Unity Catalog — the project schema"
-        RAW[rnd_tickets<br/>bronze canonical Delta<br/>case_text + metadata struct + CDF]
-        SILVER[rd_tasks_silver<br/>typed + content_hash]
-        GOLD[rd_tasks_gold_enrichment<br/>incremental ai_query columns]
-        SERVING[rd_tasks_serving<br/>one table both engines read<br/>ka_content + metadata struct + CDF]
-        VIEW[rd_tasks_serving_analytics<br/>curated Genie view]
-        GLOSS[glossary<br/>approved terms]
-        FN[glossary_lookup<br/>UC function]
+    subgraph "Tools"
+        SEARCH[fis_knowledge_search<br/>Lakebase hybrid retrieval]
+        GLOSS[glossary_lookup<br/>94 terms in-memory]
+        GENIE_T[genie_query<br/>Genie Conversation API]
     end
 
-    subgraph "Retrieval Engines — Agent Bricks"
-        KA[Knowledge Assistant<br/>rkb-knowledge-assistant]
-        GENIE[Genie Space<br/>Field Repair Tickets]
+    subgraph "Data layer"
+        LB[(Lakebase fis_tasks<br/>pgvector IVFFlat + GIN full-text)]
+        UC[(Unity Catalog<br/>glossary table)]
+        GS[Genie space<br/>SQL analytics]
+        EMB[databricks-gte-large-en<br/>1024-dim embeddings]
     end
 
-    MAS[Multi-Agent Supervisor<br/>routes KA / Genie / glossary_lookup]
-    FRONT[Databricks One / Genie front door<br/>~10 SOS users]
+    USER --> APP --> AGENT
+    AGENT --> SEARCH --> LB
+    SEARCH --> EMB
+    AGENT --> GLOSS --> UC
+    AGENT --> GENIE_T --> GS
 
-    MD --> RAW
-    SYN --> RAW
-    RAW --> SILVER
-    SILVER --> GOLD
-    RAW --> SERVING
-    SILVER --> SERVING
-    GOLD --> SERVING
-    SERVING --> VIEW
-    GLOSS --> FN
-    GLOSS --> GOLD
+    classDef user fill:#dbeafe,stroke:#2563eb,stroke-width:1px,color:#0b1f44;
+    classDef app  fill:#fbcfe8,stroke:#db2777,stroke-width:1px,color:#500724;
+    classDef agent fill:#fecaca,stroke:#dc2626,stroke-width:1px,color:#450a0a;
+    classDef tool fill:#99f6e4,stroke:#0d9488,stroke-width:1px,color:#022c26;
+    classDef data fill:#e9d5ff,stroke:#7c3aed,stroke-width:1px,color:#2a1054;
 
-    SERVING --> KA
-    VIEW --> GENIE
-
-    KA --> MAS
-    GENIE --> MAS
-    FN --> MAS
-    MAS --> FRONT
-
-    classDef source fill:#dbeafe,stroke:#2563eb,stroke-width:1px,color:#0b1f44;
-    classDef enrich fill:#fde68a,stroke:#d97706,stroke-width:1px,color:#3a2400;
-    classDef table  fill:#e9d5ff,stroke:#7c3aed,stroke-width:1px,color:#2a1054;
-    classDef gloss  fill:#bbf7d0,stroke:#16a34a,stroke-width:1px,color:#052e16;
-    classDef engine fill:#99f6e4,stroke:#0d9488,stroke-width:1px,color:#022c26;
-    classDef sup    fill:#fecaca,stroke:#dc2626,stroke-width:1px,color:#450a0a;
-    classDef front  fill:#fbcfe8,stroke:#db2777,stroke-width:1px,color:#500724;
-
-    class MD,SYN,RAW source;
-    class SILVER,GOLD enrich;
-    class SERVING,VIEW table;
-    class GLOSS,FN gloss;
-    class KA,GENIE engine;
-    class MAS sup;
-    class FRONT front;
+    class USER user;
+    class APP app;
+    class AGENT agent;
+    class SEARCH,GLOSS,GENIE_T tool;
+    class LB,UC,GS,EMB data;
 ```
 
-Data flows left-to-right: raw ServiceNow markdown plus synthetically generated tickets land in the canonical `rnd_tickets` Delta table; the data-generation step shapes that (real + synthetic) corpus into the `rd_tasks_silver` layer; two **serverless notebook job tasks** then derive the `ai_query` gold enrichment (`enrich.py` — incremental via a `content_hash` anti-join + `MERGE`, so the LLM runs only on new/changed tickets) and the consolidated `rd_tasks_serving` **plain Delta table** (`serving.py`) with its segmented, acronym-expanded content column; the KA and Genie read the enriched artifacts; the Supervisor orchestrates them plus the glossary function; and the front door exposes the Supervisor to end users. Bronze ingest, the silver build, and the SME-governed glossary run as job tasks feeding the enrichment. (The serving table is a plain table, not a materialized view, because the KA streams from it — an MV cannot be streamed.)
+Upstream (not shown above): raw ServiceNow markdown plus synthetically generated
+tickets land in the canonical `rnd_tickets` Delta table; a silver build and an
+incremental `ai_query` gold enrichment (`content_hash` anti-join + `MERGE`, so the
+LLM runs only on new/changed tickets) produce the enriched columns. v2 then embeds
+those rows with `databricks-gte-large-en` and loads them into the **Lakebase**
+`fis_tasks` table (`lakebase_text` + `lakebase_vector`), and the same enriched rows
+back the Genie space. At query time the agent never touches the pipeline — it reads
+Lakebase, the glossary table, and Genie directly.
 
 ## Data Flow
 
 A typical question moves through the system as follows:
 
-1. **Entry.** An SOS engineer asks a question through the Databricks One / Genie front door, which routes to the Multi-Agent Supervisor under a single conversation and the user's own identity and grants.
-2. **Terminology resolution.** The Supervisor calls the `glossary_lookup(term_query)` Unity Catalog function first when jargon needs disambiguation (for example, `CA` → Controller Application, `WPS` → PowerNode). It receives the term's canonical definition and `category` and passes the term plus category downstream. The `category` drives how the term is handled: a `system` term is matched as an array element, while a non-system term is matched as free text — the correctness fix that prevents a false zero count.
-3. **Routing.** Based on the sub-agent tool descriptions, the Supervisor routes to the correct engine(s):
-   - **Semantic archetypes** (terminology matching, similar-case retrieval, cross-site recurring patterns) → Knowledge Assistant.
-   - **Structured/aggregate archetypes** (counts, priority sorting, involvement counts) → Genie Space.
-   - **Hybrid archetypes** (expert-finding, complexity/delay, priority triage) → both engines, fanned out and merged.
-4. **Retrieval.** The KA performs instructed retrieval over the indexed ticket content and returns similar prior cases with inline citations that resolve to the source ticket. Genie generates SQL against the curated analytics view and returns aggregates, ranked lists, or involvement counts.
-5. **Synthesis.** The Supervisor merges the sub-agent results into one cited, actionable answer, applying routing/synthesis instructions that shape marquee answers (for example, priority triage classifies open tasks as easiest-with-known-fix / oldest-but-blocked / stubborn-recurring, each with a ticket pointer).
-6. **Output.** The answer is returned to the user through the front door with citations that resolve back to real corpus tickets.
+1. **Entry.** An SOS engineer asks a question through the Gradio chat app (a
+   Databricks App running under its own service principal, granted read access to
+   Lakebase and the glossary/Genie assets).
+2. **Agent reasoning.** The LangGraph `create_react_agent` receives the message. Its
+   system prompt encodes the routing rules; the LLM (`databricks-claude-sonnet-4-5`)
+   decides which tool(s) to call, and may call more than one in a turn.
+3. **Terminology resolution.** When the question contains an unfamiliar acronym or
+   term (OVC, PIPS, WIM, AUR, Kistler, Neology, CA, …), the agent calls
+   `glossary_lookup` first. Lookup is exact match on term → exact match on any alias →
+   fuzzy `difflib` match (cutoff 0.5) → "not found". The 94 approved terms are
+   pre-loaded into memory at startup, so no runtime query is needed.
+4. **Retrieval.**
+   - **Qualitative** questions (troubleshooting, root cause, resolution, a specific
+     task number) → `fis_knowledge_search`. The query is embedded, then a **hybrid**
+     SQL query against Lakebase combines **vector similarity** (0.7 weight, cosine
+     distance over the IVFFlat index) and **full-text ranking** (0.3 weight,
+     `ts_rank_cd` over the GIN index), with optional `location_state` / `status`
+     filters, returning the top 5 cases with their real ticket numbers.
+   - **Quantitative** questions (counts, rankings, aggregations, percentages, trends)
+     → `genie_query`, which drives the Genie Conversation API (`start_conversation` →
+     poll to `COMPLETED`, 90s timeout) and returns the text answer, the generated SQL,
+     and the result set formatted as a markdown table (max 20 rows).
+5. **Synthesis.** The agent merges tool outputs into one cited, actionable answer,
+   citing specific task numbers (e.g., `R&DTASK0002200`) and declining to fabricate
+   when nothing relevant is found.
+6. **Output.** The answer is streamed back to the user in the Gradio app.
 
 ## Key Abstractions
 
-The system is composed of Databricks-native assets rather than application source code. The most significant abstractions:
+The system is a mix of Databricks-native assets (the upstream pipeline, Genie,
+Lakebase) and a small custom agent codebase under `v2/`. The most significant
+abstractions:
 
-- **Bronze canonical table** — `<catalog>.<schema>.rnd_tickets`. One row per R&D case, holding the full `case_text`, typed metadata columns, and the `metadata` STRUCT, with Change Data Feed enabled. It is the source of truth the silver/gold/serving layers derive from.
-- **The one serving table** — `rd_tasks_serving`, the single physical table **both** engines read: the KA-indexed `ka_content` column, the `metadata` STRUCT, and CDF enabled. It is a **plain Delta table** (not a view or materialized view) so the Knowledge Assistant can *stream* from it — streaming from an MV is unsupported. Built in-job by the `serving` notebook (`src/notebooks/serving.py`).
-- **Enrichment gold layer** — `rd_tasks_gold_enrichment` (a Delta table, incrementally `MERGE`-upserted, gated by `content_hash`). `ai_query`-driven enrichment adds canonical structured columns (`systems_involved`, `hardware`, `vendors`, `problem_category`, `root_cause`, `resolution_type`) plus a segmented description (`summary` / `customer_impact` / `troubleshooting` / `recommendation`). Genie's read surface is the curated view `rd_tasks_serving_analytics` (with `rd_tasks_gold_analytics` kept as a compatibility alias) over `rd_tasks_serving`.
-- **Governed glossary** — the `glossary` table (canonical term, definition, category, synonyms/aliases, approved_by, version) and the `glossary_lookup(term_query STRING) RETURNS TABLE(term STRING, definition STRING, category STRING)` Unity Catalog function. Sourced from product docs (authoritative) merged with ServiceNow usage evidence; only approved terms are served. This is the controlled vocabulary that drives both enrichment enums and the Supervisor's terminology resolution.
-- **Knowledge Assistant (KA)** — `rkb-knowledge-assistant`, served at endpoint `ka-97df484b-endpoint`. An Agent Bricks Instructed Retriever indexing `rd_tasks_serving.ka_content` plus a glossary Volume source; returns similar-case answers with resolving citations. Queried via `POST /serving-endpoints/{endpoint}/invocations`.
-- **Genie Space** — `Field Repair Tickets` (space_id `<genie-space-id>`). Natural-language-to-SQL over `rd_tasks_serving_analytics`, encoding involvement counting, open-task priority ranking, and delay/complexity signals as certified queries and instructions.
-- **Multi-Agent Supervisor (MAS)** — orchestrates the three tools (KA endpoint, Genie space, `glossary_lookup` function) under one conversation. Routing is driven by sharp, disambiguating natural-language tool descriptions rather than hard-coded rules. Supervisor LLM is `databricks-claude-sonnet-4-5`. <!-- VERIFY: MAS serving endpoint id and routing-instruction contents — Agent Bricks MAS metadata is not exposed via the serving API and must be read from the Agent Bricks UI -->
-- **Foundation Model API endpoints** — `databricks-claude-sonnet-4-5` powers the agents (synthesis, reasoning) and drives `ai_query` enrichment; `databricks-claude-haiku-4-5` powers the synthetic-ticket generation pass.
-- **Front door** — Databricks One (with Genie as the fallback front door) provides the brandable entry point for the SOS users and routes to the Supervisor. <!-- VERIFY: Databricks One GA availability and consumer-access entitlement state in the reference workspace -->
+- **Bronze canonical table** — `<catalog>.<schema>.rnd_tickets`. One row per R&D case,
+  holding the full `case_text`, typed metadata columns, and the `metadata` STRUCT,
+  with Change Data Feed enabled. It is the source of truth the silver/gold layers
+  derive from.
+- **Enrichment gold layer** — `rd_tasks_gold_enrichment` (a Delta table, incrementally
+  `MERGE`-upserted, gated by `content_hash`). `ai_query`-driven enrichment adds
+  canonical structured columns (`systems_involved`, `hardware`, `vendors`,
+  `problem_category`, `root_cause`, `resolution_type`) plus a segmented description
+  (`summary` / `customer_impact` / `troubleshooting` / `recommendation`). This layer
+  feeds both the Lakebase load and the Genie space.
+- **Lakebase serving table** — `fis_tasks`, in the Lakebase `fis` project
+  (`production` branch, `primary` endpoint). A Postgres table holding the enriched
+  columns plus `lakebase_text` (the composed, acronym-expanded content) and
+  `lakebase_vector` (`vector(1024)` from `databricks-gte-large-en`). Two indexes power
+  hybrid retrieval: an **IVFFlat** vector index (`idx_fis_tasks_vector`,
+  `vector_cosine_ops`) and a **GIN** full-text index (`idx_fis_tasks_text` over
+  `to_tsvector('english', lakebase_text)`).
+- **`fis_knowledge_search` tool** — the hybrid retriever. Embeds the query, runs a
+  single SQL statement that unions a vector-similarity CTE and a full-text-rank CTE
+  and scores each row `0.7 * vector + 0.3 * text`, honoring optional `location_state`
+  and `status_filter` predicates. Returns `TOP_K = 5` cases.
+- **`glossary_lookup` tool** — the governed controlled vocabulary. 94 approved terms
+  loaded at startup from the Unity Catalog `glossary` table (canonical term,
+  definition, category, aliases) into a Python dict + alias index. Exact → alias →
+  fuzzy match. A term becomes resolvable by being *approved*, not by a deploy.
+- **`genie_query` tool** — NL→SQL analytics over the enriched rows via the Databricks
+  SDK Genie Conversation API. Encodes involvement counting, open-task priority
+  ranking, and delay/complexity signals as the Genie space's certified queries.
+- **LangGraph agent** — a `create_react_agent` over the three tools, with a system
+  prompt that carries the routing rules and answer style (cite task numbers, pass
+  location filters, do not fabricate). LLM: `databricks-claude-sonnet-4-5` via
+  `ChatDatabricks`. The agent is logged with MLflow (`mlflow.langchain.log_model`,
+  model-from-code); Unity Catalog registration is currently gated on metastore quota
+  and re-enabled by uncommenting the `registered_model_name` argument.
+- **Foundation Model API endpoints** — `databricks-claude-sonnet-4-5` powers the agent
+  and drives `ai_query` enrichment; `databricks-gte-large-en` produces the 1024-dim
+  embeddings for both ingest and query time; `databricks-claude-haiku-4-5` powers the
+  synthetic-ticket generation pass.
+- **Front door** — a **Gradio** chat app (`v2/app/`) deployed as a Databricks App
+  (`fis-v2`) under a service principal, which is granted a Lakebase role plus read
+  access to the glossary table and Genie space.
 
 ## Directory Structure Rationale
 
-This repository is a Databricks Asset Bundle — the running system lives as Databricks
-assets, not as an application source tree. The bundle root (`databricks.yml`) includes
-`resources/*.yml`; the scripts and pipeline code the resources point at live under `src/`,
-`data_generation/`, `genie/`, and `frontdoor/`. Top-level layout:
+The repository holds the **upstream data pipeline** as a Databricks Asset Bundle at
+the root, and the **v2 custom agent** (the current serving architecture) under `v2/`.
+The bundle root (`databricks.yml`) includes `resources/*.yml`; the scripts and
+pipeline code the resources point at live under `src/`, `data_generation/`, `genie/`,
+and `frontdoor/`. Top-level layout:
 
 ```
 .
@@ -164,48 +245,44 @@ assets, not as an application source tree. The bundle root (`databricks.yml`) in
 │                             jobs_pipeline.yml, jobs_agents.yml
 ├── src/
 │   ├── notebooks/            Serverless notebook tasks: enrich.py (gold enrichment) +
-│   │                         serving.py (plain-Delta rd_tasks_serving + analytics + verify);
+│   │                         serving.py (enriched serving rows + analytics + verify);
 │   │                         enrich_recipe.py is the shared, I/O-free recipe they import.
 │   └── deploy/               Job-task scripts: parse_tickets, load_tables, build_glossary,
-│                             build_serving_table (LOCAL analytics + verify CLI), build_ka +
-│                             build_serving_agents (KA over rd_tasks_serving), build_supervisor
-│                             (MAS), render_genie (renders the Genie template), frontdoor_deploy,
-│                             env, preflight, the test_* harnesses + json/md inputs
+│                             render_genie (renders the Genie template), and the test
+│                             harnesses + json/md inputs
 ├── data/servicenow/          The ticket corpus markdown (parse_tickets reads it); ships
 │                             WITH the repo so the bundle is self-contained
 ├── data_generation/          build_silver.py (silver layer) + generate.py (synthetic corpus)
 ├── genie/                    genie_space.template.json (native DAB genie_spaces payload;
 │                             rendered per catalog/schema by src/deploy/render_genie.py)
-├── frontdoor/                FastAPI + built SPA front-door app (deployed via apps.yml)
+├── v2/                       The current architecture (Lakebase + custom LangGraph agent):
+│   ├── agent/                fis_v2_agent.py — notebook: config, Lakebase connection,
+│   │                         embedding, the 3 tools, agent definition, test, MLflow logging
+│   ├── app/                  app.py (Gradio chat app with all 3 tools) + app.yaml
+│   │                         (Databricks App config, Lakebase resource) + requirements.txt
+│   ├── tests/                fis_v2_tests.py — 8 suites, 35+ tests
+│   └── docs/                 plan_build.md, ARCHITECTURE_V2.md, DEPLOYMENT_V2.md
 ├── eval/                     MLflow GenAI evaluation harness (run_eval.py)
 ├── specifications/           Component specs (01 ingest+enrich, 02 agents, 03 apps)
 └── DEPLOYMENT.md / README.md
 ```
 
-- **`resources/` + `databricks.yml`** — the bundle. Native resources (UC schema/volume,
-  the `genie_spaces` Genie space, and the front-door app) plus the jobs that run the
-  imperative work DAB has no resource type for: the data pipeline (`jobs_pipeline.yml` →
-  the `rkb_data_pipeline` job) and the Agent Bricks + OBO-authz builds (`jobs_agents.yml` →
-  `rkb_agents` + `rkb_frontdoor_authz`). There is **no Lakeflow pipeline** — the KA streams
-  from `rd_tasks_serving`, which must be a plain Delta table (an MV cannot be streamed), so
-  the `serving` notebook builds it.
-- **`src/deploy/`** — the job-task scripts: bronze ingest (`parse_tickets` → `load_tables`),
-  the governed `glossary` + `glossary_lookup` builder, the analytics-view + `--verify` step
-  (`build_serving_table.py`), and the Agent Bricks builds DAB cannot express natively
-  (`build_serving_agents.py` for the KA, `build_supervisor.py` for the MAS) with their
-  `test_*.py` isolation harnesses and glossary/example inputs. The Genie Space is NOT
-  script-built — it is the native `genie_spaces` resource (`resources/genie.yml`) whose
-  payload is rendered per catalog/schema by `src/deploy/render_genie.py` from
-  `genie/genie_space.template.json`; `test_genie.py` exercises it.
-- **`src/notebooks/`** — the two serverless notebook job tasks that derive the gold layer:
-  `enrich.py` builds `rd_tasks_gold_enrichment` (LLM `ai_query`, incremental via a
-  `content_hash` anti-join + `MERGE`) and `serving.py` builds the `rd_tasks_serving` **plain
-  Delta table** both engines read (then the analytics views + `verify()`). `enrich_recipe.py`
-  is the single-source, I/O-free recipe (ai_query schema + acronym expansion) they both import.
-- **`data_generation/`** — `build_silver.py` shapes bronze into `rd_tasks_silver`; `generate.py`
-  is the one-time synthetic-corpus authoring tool (its output is pre-generated markdown that
-  `parse_tickets` reads — not wired into the deploy job).
-- **`frontdoor/`** — the front-door app (FastAPI + built SPA) uploaded via
-  `resources/apps.yml`; OBO scopes are bound post-deploy by `src/deploy/frontdoor_deploy.py`.
-- **`eval/`** — the re-runnable MLflow GenAI evaluation harness (`run_eval.py`) that scores
-  correctness, relevance, and citation-groundedness.
+- **`resources/` + `databricks.yml`** — the upstream bundle. Native resources (UC
+  schema/volume, the `genie_spaces` Genie space) plus the jobs that run the imperative
+  work DAB has no resource type for: the data pipeline (`jobs_pipeline.yml`) and the
+  glossary build.
+- **`src/`** — the pipeline job tasks: bronze ingest (`parse_tickets` → `load_tables`),
+  the governed `glossary` + `glossary_lookup` builder, and the serverless notebooks
+  that derive the gold enrichment (`enrich.py`, incremental via a `content_hash`
+  anti-join + `MERGE`) and the enriched serving rows (`serving.py`). `enrich_recipe.py`
+  is the single-source, I/O-free recipe (ai_query schema + acronym expansion) both import.
+- **`v2/`** — the current serving architecture. `agent/fis_v2_agent.py` sets up the
+  Lakebase table + indexes, defines the three tools and the LangGraph agent, and logs
+  it with MLflow; `app/` is the Gradio Databricks App that runs the agent in-process
+  behind a service principal; `tests/` is the test harness; `docs/` carries the
+  v2-specific architecture and deployment guides.
+- **`data_generation/`** — `build_silver.py` shapes bronze into `rd_tasks_silver`;
+  `generate.py` is the one-time synthetic-corpus authoring tool (its output is
+  pre-generated markdown that `parse_tickets` reads — not wired into the deploy job).
+- **`eval/`** — the re-runnable MLflow GenAI evaluation harness (`run_eval.py`) that
+  scores correctness, relevance, and citation-groundedness.

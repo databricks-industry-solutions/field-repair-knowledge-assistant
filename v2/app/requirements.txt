@@ -1,0 +1,7 @@
+psycopg[binary]>=3.1.0
+databricks-sdk>=0.118.0
+databricks-langchain
+langgraph>=1.2.0
+langgraph-prebuilt>=1.1.0
+mlflow>=2.14
+gradio>=4.0
