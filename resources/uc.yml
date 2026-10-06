@@ -30,3 +30,13 @@ resources:
         - principal: account users
           privileges:
             - READ_VOLUME
+
+    servicenow_landing:
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      name: servicenow_landing
+      volume_type: MANAGED
+      comment: >-
+        Landing zone for ServiceNow rd_task exports (newline-delimited JSON under
+        rd_task/). Written by land_servicenow_exports.py, read incrementally by the
+        servicenow_ingest Lakeflow pipeline via Auto Loader.

@@ -1,0 +1,30 @@
+# Lakeflow Spark Declarative Pipeline: ServiceNow ticket ingestion, Volume -> Delta.
+#
+#   servicenow_landing Volume (JSON exports)
+#     -> servicenow_rd_task_bronze   streaming table, Auto Loader, key expectation
+#     -> servicenow_rd_task_silver   streaming table, AUTO CDC (SCD 1) on number,
+#                                    sequenced by sys_updated_on, CDF on
+#     -> servicenow_site_summary     materialized view, per-site rollup for Genie
+#
+# Triggered (not continuous) and serverless: the data job runs it right after
+# land_servicenow drops new exports, and Auto Loader only reads files it hasn't seen.
+# SQL sources live in src/pipelines/servicenow_ingest/ (one dataset per file).
+
+resources:
+  pipelines:
+    servicenow_ingest:
+      name: "[${bundle.target}] Field Repair ServiceNow ingest (Lakeflow)"
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      serverless: true
+      continuous: false
+      channel: CURRENT
+      photon: true
+      configuration:
+        landing_path: /Volumes/${var.catalog}/${var.schema}/servicenow_landing/rd_task/
+      libraries:
+        - glob:
+            include: ../src/pipelines/servicenow_ingest/**
+      tags:
+        project: rkb-knowledge-agent
+        layer: lakeflow-ingest

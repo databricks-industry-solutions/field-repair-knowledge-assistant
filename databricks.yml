@@ -15,14 +15,17 @@
 # "knowledge_assistants", "agent" and "supervisor" appear ZERO times.
 #
 # So:
-#   native      — schema, volume, genie_space, and the app
+#   native      — schema, volumes, genie_space, the app, and the servicenow_ingest
+#                 Lakeflow Spark Declarative Pipeline (resources/pipeline_servicenow.yml:
+#                 landing Volume -> Auto Loader bronze -> AUTO CDC silver -> site MV)
 #   job-wrapped — the whole data pipeline runs as one job (rkb_data_pipeline): bronze
 #                 ingest + silver + glossary as spark_python_task, then gold enrichment
 #                 and the serving table as serverless notebook_task notebooks
 #                 (src/notebooks/); plus the KA + MAS builds (no DAB resource type exists
-#                 for them; idempotent scripts run as job tasks). There is NO Lakeflow
-#                 pipeline — the KA streams from rd_tasks_serving, which must be a plain
-#                 Delta table (an MV cannot be streamed), so the serving notebook builds it.
+#                 for them; idempotent scripts run as job tasks). The job also lands
+#                 ServiceNow exports and triggers the Lakeflow pipeline. rd_tasks_serving
+#                 stays a plain Delta table built by the serving notebook, because the KA
+#                 streams from it and an MV cannot be streamed.
 #
 # RETARGETING
 # -----------

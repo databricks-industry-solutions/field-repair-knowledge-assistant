@@ -2,9 +2,11 @@
 #
 # Every stage is a JOB task. bronze/silver/glossary are spark_python_task (SQL via the
 # statement-execution API); GOLD_ENRICHMENT and SERVING are serverless notebook_task
-# notebooks (SQL via their own Spark session). There is NO Lakeflow pipeline: the KA
-# streams from rd_tasks_serving and you cannot stream from a materialized view, so the
-# serving notebook builds it as a plain Delta table (CDF on).
+# notebooks (SQL via their own Spark session). ServiceNow exports also flow through a
+# Lakeflow Spark Declarative Pipeline (land_servicenow -> servicenow_lakeflow; see
+# resources/pipeline_servicenow.yml). rd_tasks_serving itself stays a plain Delta table
+# (CDF on) built by the serving notebook: the KA streams from it, and you cannot stream
+# from a materialized view.
 #
 #   parse_tickets / load_tables  — stdlib markdown parse -> rnd_tickets (bronze),
 #                                  including the appended synthetic tickets.
@@ -139,6 +141,29 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
+
+        # --- Lakeflow: ServiceNow exports land in a Volume, then the declarative
+        #     pipeline ingests them (Auto Loader bronze -> AUTO CDC silver -> site MV).
+        #     Runs alongside the bronze load; nothing downstream depends on it yet.
+        - task_key: land_servicenow
+          description: Write ServiceNow rd_task JSON exports into the servicenow_landing Volume.
+          environment_key: serverless
+          spark_python_task:
+            python_file: ../src/deploy/land_servicenow_exports.py
+            parameters:
+              - --catalog
+              - ${var.catalog}
+              - --schema
+              - ${var.schema}
+
+        - task_key: servicenow_lakeflow
+          description: >-
+            Run the servicenow_ingest Lakeflow pipeline: Volume -> servicenow_rd_task_bronze
+            -> servicenow_rd_task_silver -> servicenow_site_summary.
+          depends_on:
+            - task_key: land_servicenow
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.servicenow_ingest.id}
 
       tags:
         project: rkb-knowledge-agent
