@@ -165,6 +165,27 @@ resources:
           pipeline_task:
             pipeline_id: ${resources.pipelines.servicenow_ingest.id}
 
+        # --- Lakebase: push new/changed tickets from Lakeflow silver (+ enrichment) into
+        #     the Lakebase fis_tasks table the v2 agent and app search. Incremental by
+        #     content_hash, so a no-change run embeds and writes nothing.
+        - task_key: lakebase_sync
+          description: >-
+            Embed new/changed tickets from servicenow_rd_task_silver (+ location and
+            enrichment) and upsert them into Lakebase fis_tasks (pgvector + full-text).
+          depends_on:
+            - task_key: servicenow_lakeflow
+            - task_key: enrich
+          notebook_task:
+            notebook_path: ../src/notebooks/lakebase_sync.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              lakebase_project: ${var.lakebase_project}
+              lakebase_branch: ${var.lakebase_branch}
+              lakebase_endpoint: ${var.lakebase_endpoint}
+              lakebase_database: ${var.lakebase_database}
+              lakebase_table: ${var.lakebase_table}
+
       tags:
         project: rkb-knowledge-agent
         layer: data-pipeline

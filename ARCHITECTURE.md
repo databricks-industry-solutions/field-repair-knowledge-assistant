@@ -178,8 +178,20 @@ graph LR
     VOL -->|Auto Loader| BR[servicenow_rd_task_bronze<br/>streaming table]
     BR -->|AUTO CDC SCD1| SV[servicenow_rd_task_silver<br/>streaming table, CDF]
     SV --> MV[servicenow_site_summary<br/>materialized view]
-    SV --> EN[ai_query enrichment] --> LB[(Lakebase fis_tasks)]
+    SV --> SYNC[lakebase_sync<br/>embed changed rows, upsert]
+    EN[rd_tasks_gold_enrichment<br/>ai_query] --> SYNC
+    SYNC --> LB[(Lakebase fis_tasks<br/>pgvector + GIN)]
+    LB --> APP[v2 agent + app<br/>hybrid search]
 ```
+
+3. **`lakebase_sync`** (serverless notebook, `src/notebooks/lakebase_sync.py`) joins
+   Lakeflow silver with the parsed location fields and the `ai_query` enrichment,
+   compares each ticket's `content_hash` with what Lakebase already holds, embeds only
+   new or changed tickets with `databricks-gte-large-en`, and upserts them into
+   Lakebase `fis_tasks` (`ON CONFLICT (number)`). It also ensures the pgvector column,
+   the primary key, and the GIN full-text index exist. That is the low-latency store
+   the v2 agent and app query, so the path from a landed ServiceNow export to an answer
+   in the app is one job run.
 
 ## Data Flow
 
@@ -278,7 +290,8 @@ and `frontdoor/`. Top-level layout:
 │   ├── pipelines/            Lakeflow SDP SQL: servicenow_ingest/ (bronze Auto Loader,
 │   │                         silver AUTO CDC, site summary MV)
 │   ├── notebooks/            Serverless notebook tasks: enrich.py (gold enrichment) +
-│   │                         serving.py (enriched serving rows + analytics + verify);
+│   │                         serving.py (enriched serving rows + analytics + verify) +
+│   │                         lakebase_sync.py (silver -> Lakebase fis_tasks);
 │   │                         enrich_recipe.py is the shared, I/O-free recipe they import.
 │   └── deploy/               Job-task scripts: parse_tickets, load_tables, build_glossary,
 │                             render_genie (renders the Genie template), and the test
