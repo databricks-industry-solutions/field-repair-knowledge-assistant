@@ -151,6 +151,36 @@ those rows with `databricks-gte-large-en` and loads them into the **Lakebase**
 back the Genie space. At query time the agent never touches the pipeline — it reads
 Lakebase, the glossary table, and Genie directly.
 
+## ServiceNow Ingestion (Lakeflow)
+
+ServiceNow tickets enter the lakehouse through a **Lakeflow Spark Declarative
+Pipeline** (`resources/pipeline_servicenow.yml`, SQL in
+`src/pipelines/servicenow_ingest/`). The `rkb_data_pipeline` job runs it in two tasks:
+
+1. **`land_servicenow`** writes ServiceNow `rd_task` exports (newline-delimited JSON,
+   Table API shape with `sys_id` / `sys_updated_on`) into the
+   `servicenow_landing` UC Volume. This stands in for the scheduled ServiceNow export.
+2. **`servicenow_lakeflow`** triggers the serverless pipeline:
+   - `servicenow_rd_task_bronze`: streaming table, Auto Loader (`STREAM read_files`)
+     over the landing Volume, rows without a ticket number dropped by expectation.
+   - `servicenow_rd_task_silver`: streaming table fed by `AUTO CDC` (SCD Type 1,
+     keyed on `number`, sequenced by `sys_updated_on`), typed columns, a
+     `content_hash` for incremental enrichment, Change Data Feed on.
+   - `servicenow_site_summary`: materialized view with per-site, per-status counts,
+     backlog, and age for the SOS team and Genie.
+
+Auto Loader only reads files it hasn't seen and Auto CDC upserts by ticket, so
+re-landing an export is idempotent.
+
+```mermaid
+graph LR
+    SN[ServiceNow rd_task export] --> VOL[(UC Volume<br/>servicenow_landing)]
+    VOL -->|Auto Loader| BR[servicenow_rd_task_bronze<br/>streaming table]
+    BR -->|AUTO CDC SCD1| SV[servicenow_rd_task_silver<br/>streaming table, CDF]
+    SV --> MV[servicenow_site_summary<br/>materialized view]
+    SV --> EN[ai_query enrichment] --> LB[(Lakebase fis_tasks)]
+```
+
 ## Data Flow
 
 A typical question moves through the system as follows:
@@ -242,8 +272,11 @@ and `frontdoor/`. Top-level layout:
 .
 ├── databricks.yml            Bundle definition (variables, targets, sync excludes)
 ├── resources/                DAB resources: uc.yml, genie.yml, apps.yml,
-│                             jobs_pipeline.yml, jobs_agents.yml
+│                             jobs_pipeline.yml, jobs_agents.yml,
+│                             pipeline_servicenow.yml (Lakeflow pipeline)
 ├── src/
+│   ├── pipelines/            Lakeflow SDP SQL: servicenow_ingest/ (bronze Auto Loader,
+│   │                         silver AUTO CDC, site summary MV)
 │   ├── notebooks/            Serverless notebook tasks: enrich.py (gold enrichment) +
 │   │                         serving.py (enriched serving rows + analytics + verify);
 │   │                         enrich_recipe.py is the shared, I/O-free recipe they import.
