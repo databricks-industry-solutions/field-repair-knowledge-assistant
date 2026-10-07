@@ -98,6 +98,24 @@ variables:
       deploy passes e.g. `--var agent_suffix=-dev`.
     default: ""
 
+  # Lakebase operational store the v2 agent and app read (hybrid pgvector +
+  # full-text search over fis_tasks). Loaded by the lakebase_sync job task.
+  lakebase_project:
+    description: Lakebase project holding the fis_tasks serving table.
+    default: fis
+  lakebase_branch:
+    description: Lakebase branch.
+    default: production
+  lakebase_endpoint:
+    description: Lakebase compute endpoint.
+    default: primary
+  lakebase_database:
+    description: Postgres database inside the Lakebase branch.
+    default: databricks_postgres
+  lakebase_table:
+    description: Lakebase table the agent and app search.
+    default: fis_tasks
+
 targets:
   # Set your workspace via the CLI profile (-p / DATABRICKS_CONFIG_PROFILE) rather
   # than pinning a host here, so this template is portable. Two engineers on the same

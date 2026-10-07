@@ -21,15 +21,20 @@ print(ep.status.hosts.host)  # Should show the endpoint host
 
 ### 1.2 Create Table & Indexes
 
-Run the agent notebook (`v2/agent/fis_v2_agent.py`) cells 1–4 in order:
-1. Install dependencies
-2. Configure connection parameters
-3. Connect to Lakebase and verify
-4. Embed and ingest the 223 R&D task rows
+Run the bundle's data job (`rkb_data_pipeline`). Its `lakebase_sync` task
+(`src/notebooks/lakebase_sync.py`) reads the Lakeflow silver table
+`servicenow_rd_task_silver` plus enrichment, embeds new or changed tickets, and
+upserts them into Lakebase:
 
-The notebook creates:
+```bash
+databricks bundle deploy -p <profile> --var warehouse_id=<id>
+databricks bundle run rkb_data_pipeline -p <profile> --var warehouse_id=<id>
+```
+
+The task creates (idempotently):
 - `fis_tasks` table with 27 columns including `lakebase_vector` (1024-dim) and `lakebase_text`
-- IVFFlat vector index (`idx_fis_tasks_vector`)
+- Primary key on `number` (upsert target) and `content_hash` / `synced_at` columns
+- IVFFlat vector index (`idx_fis_tasks_vector`), created once the table has rows
 - GIN full-text index (`idx_fis_tasks_text`)
 
 ### 1.3 Create Lakebase Role for App SP

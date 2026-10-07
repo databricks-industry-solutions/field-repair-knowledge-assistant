@@ -39,7 +39,7 @@ SELECT
 FROM STREAM(servicenow_rd_task_bronze);
 
 CREATE OR REFRESH STREAMING TABLE servicenow_rd_task_silver (
-  CONSTRAINT valid_status EXPECT (status IN ('Open', 'Closed', 'Closed Complete', 'Closed Incomplete', 'Work In Progress', 'Pending')),
+  CONSTRAINT valid_status EXPECT (status IN ('Open', 'Pending', 'Work In Progress', 'Closed', 'Closed Complete', 'Closed Incomplete', 'Closed Skipped')),
   CONSTRAINT has_case_text EXPECT (case_text IS NOT NULL AND length(case_text) > 0)
 )
 COMMENT 'Current state of every ServiceNow rd_task ticket (SCD Type 1, latest sys_updated_on wins). content_hash drives incremental enrichment downstream.'
