@@ -225,7 +225,7 @@ SEED_TERMS = [
      "Camera viewer / SDK tooling used to view or configure machine-vision camera streams."),
     ("illuminator", None, "hardware", ["AUR illuminator"],
      "IR/visible lighting unit paired with a camera to enable capture in low light."),
-    ("WPS", "PowerNode", "hardware", ["PowerNode"],
+    ("WPS", "PowerNode", "hardware", ["PowerNode", "power controller", "Web Power Switch"],
      "Networked power controller (a PowerNode unit) used to remotely power-cycle roadside equipment. WPS and PowerNode refer to the same power-controller role."),
     ("ATIS", "Axle & Tire Imaging System", "system", ["Axle & Tire Imaging System", "Advanced Traveler Information System"],
      "Enclosure-mounted cameras that image each axle/tire for axle-count and tire condition."),

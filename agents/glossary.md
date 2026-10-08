@@ -47,8 +47,8 @@ cite.
 ## Power & Networking
 
 - **WPS = PowerNode.** Networked power controller (a "PowerNode" unit) used to
-  remotely power-cycle roadside equipment. "WPS" and "PowerNode" refer to the same
-  power-controller role in these tickets.
+  remotely power-cycle roadside equipment. "WPS", "Web Power Switch", "PowerNode", and
+  "power controller" all refer to the same device in these tickets.
 
 ## Roadside Data / Traveler Info
 

@@ -30,17 +30,22 @@ from typing import Optional
 import time
 
 # Config (same as app)
-LAKEBASE_HOST = "ep-long-feather-d20bt18w.database.us-east-1.cloud.databricks.com"
+dbutils.widgets.text("catalog", "main")
+dbutils.widgets.text("schema", "troubleshooting_knowledge_agent")
+dbutils.widgets.text("genie_space_id", "")
+_CAT, _SCH = dbutils.widgets.get("catalog"), dbutils.widgets.get("schema")
+LAKEBASE_HOST = None  # looked up from ENDPOINT_FULL once the workspace client exists
 LAKEBASE_DB = "databricks_postgres"
 LAKEBASE_TABLE = "fis_tasks"
 EMBEDDING_MODEL = "databricks-gte-large-en"
 LLM_ENDPOINT = "databricks-claude-sonnet-4-5"
 TOP_K = 5
 ENDPOINT_FULL = "projects/fis/branches/production/endpoints/primary"
-GLOSSARY_TABLE = "serverless_stable_l26d62_catalog.fis_knowledge_agent.glossary"
-GENIE_SPACE_ID = "01f190db953e1140b39d10f49a46aa7b"
+GLOSSARY_TABLE = f"{_CAT}.{_SCH}.glossary"
+GENIE_SPACE_ID = dbutils.widgets.get("genie_space_id")
 
 w = WorkspaceClient()
+LAKEBASE_HOST = LAKEBASE_HOST or w.postgres.get_endpoint(name=ENDPOINT_FULL).status.hosts.host
 deploy_client = get_deploy_client("databricks")
 
 def get_lakebase_connection():

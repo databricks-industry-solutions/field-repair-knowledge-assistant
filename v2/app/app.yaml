@@ -2,9 +2,15 @@ command:
   - python
   - app.py
 
-resources:
-  - name: lakebase-fis
-    lakebase_database:
-      project: fis
-      branch: production
-      permission: CAN_CONNECT_AND_CREATE
+# Set these per workspace. The app's service principal needs a Lakebase role on the
+# project (see v2/docs/DEPLOYMENT_V2.md), SELECT on the glossary table, and access to
+# the Genie space, which is attached as an app resource named genie-space.
+env:
+  - name: RKB_CATALOG
+    value: main
+  - name: RKB_SCHEMA
+    value: troubleshooting_knowledge_agent
+  - name: LAKEBASE_ENDPOINT
+    value: projects/fis/branches/production/endpoints/primary
+  - name: GENIE_SPACE_ID
+    valueFrom: genie-space
