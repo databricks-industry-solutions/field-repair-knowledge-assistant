@@ -7,6 +7,7 @@ A conversational agent for R&D field operations with three tools:
 """
 
 import os
+import re
 import json
 import time
 import logging
@@ -26,24 +27,27 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-LAKEBASE_HOST = os.getenv(
-    "PGHOST",
-    "ep-long-feather-d20bt18w.database.us-east-1.cloud.databricks.com",
-)
+# Everything workspace-specific comes from app.yaml env, so the same code deploys anywhere.
+RKB_CATALOG = os.getenv("RKB_CATALOG", "main")
+RKB_SCHEMA = os.getenv("RKB_SCHEMA", "troubleshooting_knowledge_agent")
+ENDPOINT_FULL = os.getenv("LAKEBASE_ENDPOINT", "projects/fis/branches/production/endpoints/primary")
+LAKEBASE_HOST = os.getenv("PGHOST")  # resolved from ENDPOINT_FULL at startup when unset
 LAKEBASE_DB = os.getenv("PGDATABASE", "databricks_postgres")
-LAKEBASE_TABLE = "fis_tasks"
+LAKEBASE_TABLE = os.getenv("LAKEBASE_TABLE", "fis_tasks")
 EMBEDDING_MODEL = "databricks-gte-large-en"
 LLM_ENDPOINT = "databricks-claude-sonnet-4-5"
 TOP_K = 5
-ENDPOINT_FULL = "projects/fis/branches/production/endpoints/primary"
-GLOSSARY_TABLE = "serverless_stable_l26d62_catalog.fis_knowledge_agent.glossary"
-GENIE_SPACE_ID = "01f190db953e1140b39d10f49a46aa7b"
+GLOSSARY_TABLE = os.getenv("GLOSSARY_TABLE") or f"{RKB_CATALOG}.{RKB_SCHEMA}.glossary"
+GENIE_SPACE_ID = os.getenv("GENIE_SPACE_ID", "")
 
 # ---------------------------------------------------------------------------
 # Clients (initialized once at startup)
 # ---------------------------------------------------------------------------
 w = WorkspaceClient()  # auto-authenticates via SP credentials
 deploy_client = get_deploy_client("databricks")
+
+if not LAKEBASE_HOST:
+    LAKEBASE_HOST = w.postgres.get_endpoint(name=ENDPOINT_FULL).status.hosts.host
 
 logger.info("Clients initialized")
 
@@ -114,6 +118,23 @@ def _load_glossary() -> tuple[list[dict], dict]:
 GLOSSARY, _GLOSSARY_INDEX = _load_glossary()
 
 
+def expand_with_glossary(query: str) -> list[str]:
+    """Governed terms and aliases named in the query, expanded to every known name.
+
+    "power controller" -> ["WPS", "PowerNode", "power controller", "Web Power Switch"],
+    so search finds a ticket whichever name the tech wrote. Whole-word matches only,
+    so a short term like CA doesn't fire on "camera".
+    """
+    q = query.lower()
+    names: list[str] = []
+    for key, g in _GLOSSARY_INDEX.items():
+        if re.search(rf"\b{re.escape(key)}\b", q):
+            for n in [g["term"], *(g.get("aliases") or [])]:
+                if n and n not in names:
+                    names.append(n)
+    return names
+
+
 # ---------------------------------------------------------------------------
 # Lakebase connection
 # ---------------------------------------------------------------------------
@@ -179,8 +200,15 @@ def fis_knowledge_search(
         location_state: Optional 2-letter state code to filter (e.g. 'TX').
         status_filter: Optional status filter (e.g. 'Closed', 'Open').
     """
-    query_embedding = embed_query(query)
+    synonyms = expand_with_glossary(query)
+    embed_text = f"{query} ({'; '.join(synonyms)})" if synonyms else query
+    query_embedding = embed_query(embed_text)
     emb_str = "[" + ",".join(str(v) for v in query_embedding) + "]"
+    # Full-text: any governed name matches; otherwise the plain query.
+    ts_fn = "websearch_to_tsquery" if synonyms else "plainto_tsquery"
+    ts_query = " or ".join(f'"{n}"' for n in synonyms) if synonyms else query
+    if synonyms:
+        logger.info("glossary expansion: %s", synonyms)
 
     where_clauses: list[str] = []
     params: list[str] = []
@@ -192,48 +220,42 @@ def fis_knowledge_search(
         params.append(status_filter)
 
     where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
-    # Combine filter conditions with full-text match for text_search
-    text_conditions = list(where_clauses)
-    text_conditions.append(
-        "to_tsvector('english', lakebase_text) @@ plainto_tsquery('english', %s)"
-    )
-    text_where = "WHERE " + " AND ".join(text_conditions)
+    tsv = "to_tsvector('english', lakebase_text)"
+    tsq = f"{ts_fn}('english', %s)"
+    text_where = "WHERE " + " AND ".join(where_clauses + [f"{tsv} @@ {tsq}"])
+    # A governed-term match is strong evidence on its own, so it scores 1. Otherwise
+    # fall back to ts_rank_cd. Candidates are the UNION of the vector and full-text
+    # top hits, so a ticket that only matches on wording still gets ranked.
+    text_score = (f"CASE WHEN {tsv} @@ {tsq} THEN 1.0 ELSE 0 END" if synonyms
+                  else f"COALESCE(ts_rank_cd({tsv}, {tsq}), 0)")
 
     sql = f"""
-    WITH vector_search AS (
-        SELECT number, title, location_state, location_site, status,
-               priority_label, problem_category, root_cause, resolution,
-               resolution_type, lakebase_text,
-               1 - (lakebase_vector <=> %s::vector) AS vector_score
-        FROM {LAKEBASE_TABLE}
-        {where_sql}
-        ORDER BY lakebase_vector <=> %s::vector
-        LIMIT {TOP_K * 2}
+    WITH vec AS (
+        SELECT number FROM {LAKEBASE_TABLE} {where_sql}
+        ORDER BY lakebase_vector <=> %s::vector LIMIT {TOP_K * 2}
     ),
-    text_search AS (
-        SELECT number,
-               ts_rank_cd(
-                   to_tsvector('english', lakebase_text),
-                   plainto_tsquery('english', %s)
-               ) AS text_score
-        FROM {LAKEBASE_TABLE}
-        {text_where}
-    )
-    SELECT v.number, v.title, v.location_state, v.location_site,
-           v.status, v.priority_label, v.problem_category,
-           v.root_cause, v.resolution, v.resolution_type,
-           v.lakebase_text, v.vector_score,
-           COALESCE(t.text_score, 0) AS text_score,
-           (0.7 * v.vector_score
-            + 0.3 * COALESCE(t.text_score, 0)) AS combined_score
-    FROM vector_search v
-    LEFT JOIN text_search t ON v.number = t.number
+    txt AS (
+        SELECT number FROM {LAKEBASE_TABLE} {text_where}
+        ORDER BY ts_rank_cd({tsv}, {tsq}) DESC LIMIT {TOP_K * 2}
+    ),
+    cand AS (SELECT number FROM vec UNION SELECT number FROM txt)
+    SELECT t.number, t.title, t.location_state, t.location_site,
+           t.status, t.priority_label, t.problem_category,
+           t.root_cause, t.resolution, t.resolution_type, t.lakebase_text,
+           1 - (t.lakebase_vector <=> %s::vector) AS vector_score,
+           {text_score} AS text_score,
+           0.7 * (1 - (t.lakebase_vector <=> %s::vector)) + 0.3 * ({text_score}) AS combined_score
+    FROM {LAKEBASE_TABLE} t JOIN cand USING (number)
     ORDER BY combined_score DESC
     LIMIT {TOP_K}
     """
 
+    # Placeholders in SQL order; each text_score expression takes one ts_query.
     all_params = (
-        [emb_str] + params + [emb_str] + [query] + params + [query]
+        params + [emb_str]                       # vec: filters, ORDER BY distance
+        + params + [ts_query, ts_query]          # txt: filters + match, ORDER BY rank
+        + [emb_str, ts_query]                    # vector_score, text_score
+        + [emb_str, ts_query]                    # combined_score
     )
 
     conn = get_lakebase_connection()
@@ -249,8 +271,21 @@ def fis_knowledge_search(
         return "No matching R&D tasks found for your query."
 
     results = []
+    if synonyms:
+        # Tell the model the governed mapping, because the ticket text usually uses
+        # only one of the names (a WPS ticket never says "power controller").
+        results.append(
+            "Glossary (governed): these names refer to the same thing in the tickets: "
+            + ", ".join(synonyms)
+            + ". Treat a ticket that mentions any of them as relevant."
+        )
     for row in rows:
         r = dict(zip(col_names, row))
+        if synonyms:
+            text = (r["lakebase_text"] or "").lower()
+            hit = [n for n in synonyms if n.lower() in text]
+            if hit:
+                r["title"] = f"{r['title']}  [mentions {', '.join(hit)}]"
         results.append(
             f"**{r['number']}** \u2014 {r['title']}\n"
             f"Location: {r['location_state'] or 'N/A'}"
@@ -321,6 +356,7 @@ def genie_query(question: str) -> str:
     Args:
         question: The analytical or quantitative question to ask.
     """
+    logger.info("genie_query: %s", question)
     try:
         op = w.genie.start_conversation(
             space_id=GENIE_SPACE_ID, content=question
@@ -459,18 +495,17 @@ def chat_fn(message: str, history: list) -> str:
 demo = gr.ChatInterface(
     fn=chat_fn,
     type="messages",
-    title="\U0001f50d FIS v2 Knowledge Agent",
+    title="Field Repair Knowledge Agent",
     description=(
         "Ask about R&D equipment issues, troubleshooting procedures, "
         "root causes, and resolutions from past field tasks."
     ),
     examples=[
-        "What are common camera alignment issues and how were they resolved?",
-        "Show me modem connectivity problems in Virginia",
+        "A WIM site is reporting 0 weights. Have we seen this before and what fixed it?",
+        "What fixed power controller issues at our sites?",
+        "Which open tasks should we triage first?",
+        "Who is our expert for WIM issues?",
         "What does OVC stand for?",
-        "How many R&D tasks are open by state?",
-        "What is Kistler?",
-        "Which assignment groups have the most tasks?",
     ],
     theme=gr.themes.Soft(),
 )

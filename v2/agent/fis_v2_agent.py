@@ -19,14 +19,18 @@ LAKEBASE_PROJECT = "fis"
 LAKEBASE_BRANCH = "production"
 LAKEBASE_ENDPOINT = "primary"
 LAKEBASE_DB = "databricks_postgres"
-LAKEBASE_HOST = "ep-long-feather-d20bt18w.database.us-east-1.cloud.databricks.com"
+dbutils.widgets.text("catalog", "main")
+dbutils.widgets.text("schema", "troubleshooting_knowledge_agent")
+dbutils.widgets.text("genie_space_id", "")
+_CAT, _SCH = dbutils.widgets.get("catalog"), dbutils.widgets.get("schema")
+LAKEBASE_HOST = None  # looked up from ENDPOINT_FULL once the workspace client exists
 LAKEBASE_TABLE = "fis_tasks"
 EMBEDDING_MODEL = "databricks-gte-large-en"
 LLM_ENDPOINT = "databricks-claude-sonnet-4-5"
 TOP_K = 5
 
-GLOSSARY_TABLE = "serverless_stable_l26d62_catalog.fis_knowledge_agent.glossary"
-GENIE_SPACE_ID = "01f190db953e1140b39d10f49a46aa7b"
+GLOSSARY_TABLE = f"{_CAT}.{_SCH}.glossary"
+GENIE_SPACE_ID = dbutils.widgets.get("genie_space_id")
 
 # Derived
 ENDPOINT_FULL = f"projects/{LAKEBASE_PROJECT}/branches/{LAKEBASE_BRANCH}/endpoints/{LAKEBASE_ENDPOINT}"
@@ -47,6 +51,7 @@ import psycopg
 from databricks.sdk import WorkspaceClient
 
 w = WorkspaceClient()
+LAKEBASE_HOST = LAKEBASE_HOST or w.postgres.get_endpoint(name=ENDPOINT_FULL).status.hosts.host
 
 def get_lakebase_connection():
     """Create a fresh psycopg connection to the Lakebase fis project."""
@@ -212,7 +217,7 @@ def glossary_lookup(term: str) -> str:
     """Look up the definition of an FIS domain-specific term, acronym, or equipment name.
 
     Use this tool when you encounter an unfamiliar term or acronym such as
-    OVC, PIPS, Kistler, AUR, WIM, ALPR, CA, Neology, Fleetworthy, etc.
+    OVC, PIPS, Kistler, AUR, WIM, ALPR, CA, Neology, etc.
 
     Args:
         term: The term or acronym to look up.
@@ -430,7 +435,7 @@ model_code_lines = [
     'from typing import Optional',
     'import mlflow',
     '',
-    'LAKEBASE_HOST = "ep-long-feather-d20bt18w.database.us-east-1.cloud.databricks.com"',
+    f'LAKEBASE_HOST = "{LAKEBASE_HOST}"',
     'LAKEBASE_DB = "databricks_postgres"',
     'LAKEBASE_TABLE = "fis_tasks"',
     'EMBEDDING_MODEL = "databricks-gte-large-en"',
@@ -522,9 +527,9 @@ with mlflow.start_run(run_name="fis_v2_agent"):
         input_example=input_example,
         # Note: registration skipped due to metastore quota (5299/5000).
         # Uncomment below once quota is available:
-        # registered_model_name="serverless_stable_l26d62_catalog.fis_knowledge_agent.fis_v2_agent",
+        # registered_model_name=f"{_CAT}.{_SCH}.fis_v2_agent",
     )
 
 print(f"Model logged: {model_info.model_uri}")
 print("To register later, run:")
-print(f'  mlflow.register_model("{model_info.model_uri}", "serverless_stable_l26d62_catalog.fis_knowledge_agent.fis_v2_agent")')
+print(f'  mlflow.register_model("{model_info.model_uri}", f"{_CAT}.{_SCH}.fis_v2_agent")')

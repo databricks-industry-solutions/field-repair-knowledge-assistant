@@ -167,62 +167,18 @@ tool comes up empty at startup.
 
 ## Stage 2 — Lakebase (build & load `fis_tasks`)
 
-Create the retriever's table and indexes, then embed and load the Stage 1 enriched
-rows into it.
+Create the Lakebase project once (skip if it exists):
 
-> [!WARNING]
-> **This stage is not yet scripted in the repo.** The table DDL below is the schema
-> from [`v2/docs/ARCHITECTURE_V2.md`](../v2/docs/ARCHITECTURE_V2.md); the agent notebook
-> (`v2/agent/fis_v2_agent.py`) currently **assumes `fis_tasks` already exists and is
-> populated** — its connection cell only runs `SELECT COUNT(*)`. There is no
-> `CREATE TABLE` or embed-and-load step in the committed code. Until a loader is added,
-> run the DDL below by hand and load the rows with your own ingest step, then treat the
-> GATE as the real check. (Reconcile this gap before claiming an unattended deploy.)
-
-Connect to Lakebase (psycopg, token from the SDK) and create the table + indexes:
-
-```sql
-CREATE TABLE IF NOT EXISTS fis_tasks (
-    number             TEXT PRIMARY KEY,
-    title              TEXT,
-    parent             TEXT,
-    assignment_group   TEXT,
-    assigned_to        TEXT,
-    priority_level     INT,
-    priority_label     TEXT,
-    status             TEXT,
-    workflow_status    TEXT,
-    is_closed          BOOL,
-    location           TEXT,
-    location_state     TEXT,
-    location_highway   TEXT,
-    location_direction TEXT,
-    location_site      TEXT,
-    site_key           TEXT,
-    duration_days      INT,
-    problem_category   TEXT,
-    summary            TEXT,
-    customer_impact    TEXT,
-    troubleshooting    TEXT,
-    recommendation     TEXT,
-    root_cause         TEXT,
-    resolution         TEXT,
-    resolution_type    TEXT,
-    lakebase_text      TEXT,
-    lakebase_vector    vector(1024)
-);
-
-CREATE INDEX IF NOT EXISTS idx_fis_tasks_vector
-    ON fis_tasks USING ivfflat (lakebase_vector vector_cosine_ops) WITH (lists=10);
-
-CREATE INDEX IF NOT EXISTS idx_fis_tasks_text
-    ON fis_tasks USING gin (to_tsvector('english', lakebase_text));
+```bash
+databricks postgres create-project fis --json '{"spec":{"display_name":"fis","pg_version":17}}' --profile <PROFILE>
 ```
 
-Then load: read the enriched rows from `<CATALOG>.<SCHEMA>` (Stage 1), compose
-`lakebase_text` (the acronym-expanded content), embed it with
-`databricks-gte-large-en` (1024-dim), and upsert each row into `fis_tasks` keyed on
-`number`.
+The table itself is built by the data job. Its `lakebase_sync` task
+(`lakebase/lakebase_sync.py`) joins the Lakeflow silver table with location and
+enrichment, embeds only new or changed tickets with `databricks-gte-large-en`, and
+upserts them into `fis_tasks`, creating the pgvector column, the primary key, and the
+GIN full-text and IVFFlat indexes if they're missing. So Stage 1's `bundle run
+rkb_data_pipeline` already loaded it.
 
 **GATE 2** — the table is populated and both indexes exist:
 
@@ -258,20 +214,30 @@ tools. Do not deploy the app on a red suite.
 
 ## Stage 4 — Deploy the Gradio app
 
-The app (`v2/app/`) runs the LangGraph agent in-process behind a service principal. It
-declares its Lakebase dependency in `app.yaml` (resource `lakebase-fis`,
-`CAN_CONNECT_AND_CREATE`).
+The app (`v2/app/`) runs the LangGraph agent in-process behind a service principal.
+Workspace settings come from `app.yaml` env: set `RKB_CATALOG` and `RKB_SCHEMA` to the
+values you deployed the bundle with. `GENIE_SPACE_ID` comes from the `genie-space`
+app resource, and the Lakebase host is looked up from `LAKEBASE_ENDPOINT` at startup.
 
 ```bash
-# 4.1 Create the app.
-databricks apps create fis-v2 --profile <PROFILE>
-
-# 4.2 Sync the app source to the workspace, then deploy from that path.
-databricks apps deploy fis-v2 --profile <PROFILE> \
-  --source-code-path /Workspace/Users/<your-email>/field-repair-knowledge-assistant/v2/app
-
-# 4.3 Read the app's service principal id (needed for the Lakebase grant).
+# 4.1 Create the app and read its service principal id.
+databricks apps create --json '{"name":"fis-v2"}' --profile <PROFILE>
 databricks apps get fis-v2 --profile <PROFILE> --output JSON | jq -r .service_principal_client_id
+
+# 4.2 Attach resources (the platform grants the SP access to each).
+databricks apps update fis-v2 --profile <PROFILE> --json '{"name":"fis-v2","resources":[
+  {"name":"genie-space","genie_space":{"name":"Field Repair Tickets (serving)","space_id":"<GENIE_SPACE_ID>","permission":"CAN_RUN"}},
+  {"name":"sql-warehouse","sql_warehouse":{"id":"<WAREHOUSE_ID>","permission":"CAN_USE"}},
+  {"name":"llm","serving_endpoint":{"name":"databricks-claude-sonnet-4-5","permission":"CAN_QUERY"}},
+  {"name":"embeddings","serving_endpoint":{"name":"databricks-gte-large-en","permission":"CAN_QUERY"}}]}'
+
+# 4.3 Unity Catalog read access for the glossary and Genie tables.
+#   GRANT USE CATALOG ON CATALOG <CATALOG> TO `<SP_CLIENT_ID>`;
+#   GRANT USE SCHEMA, SELECT ON SCHEMA <CATALOG>.<SCHEMA> TO `<SP_CLIENT_ID>`;
+
+# 4.4 Upload the app source (with app.yaml env set) and deploy.
+databricks workspace import-dir v2/app /Workspace/Users/<your-email>/apps/fis-v2 --overwrite --profile <PROFILE>
+databricks apps deploy fis-v2 --source-code-path /Workspace/Users/<your-email>/apps/fis-v2 --profile <PROFILE>
 ```
 
 Grant that service principal a Lakebase role, then table access:
