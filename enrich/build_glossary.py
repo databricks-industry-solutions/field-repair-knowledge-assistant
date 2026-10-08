@@ -3,7 +3,7 @@
 Knowledge Agent — Phase 4.1 Plan 02, Task 1: two-source glossary_proposals.
 
 Builds a two-source glossary merge in this repo's CLI-driven, host-gated harness (mirrors
-data_generation/build_silver.py / preflight.py). No Spark session — every stage is a
+ingest/build_silver.py / preflight.py). No Spark session — every stage is a
 `CREATE OR REPLACE TABLE ...` issued through `run_sql` against the --warehouse-id
 resolved by env.py.
 
@@ -11,7 +11,7 @@ Two corpora, merged (docs win on definition/category):
   1. ServiceNow (bronze rnd_tickets): `ai_query` extracts candidate domain terms per
      ticket, materialized once, grounding-guarded to verbatim mentions;
      then a second `ai_query` proposes definition/category/confidence per candidate.
-  2. Product docs (data/product_docs/*.md) + the 20 curated src/deploy/glossary.md
+  2. Product docs (data/product_docs/*.md) + the 20 curated agents/glossary.md
      terms — authoritative definitions/categories/aliases, pre-loaded as
      authoritative proposals (Product-docs decision option (b): the SME confirms
      rather than re-derives). Docs win on definition (confidence 0.9,
@@ -48,6 +48,10 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 REPO = _HERE.parent
 sys.path.insert(0, str(_HERE))
+
+for _p in (_HERE.parent / "preflight", _HERE.parent / "ingest"):
+    if str(_p) not in sys.path:
+        sys.path.append(str(_p))
 from preflight import assert_target_host, run_sql  # noqa: E402
 import preflight as _pf  # noqa: E402  (workspace_client for the SDK-based poller)
 
@@ -188,7 +192,7 @@ FROM {FQ}._glossary_sn_candidates
 
 # --- Stage 3: authoritative doc + curated-seed terms (parsed in Python) ------
 
-# Explicit categories/aliases for the 20 curated src/deploy/glossary.md terms. These
+# Explicit categories/aliases for the 20 curated agents/glossary.md terms. These
 # are the authoritative seed (Product-docs decision option (b)): the SME confirms
 # these rather than re-deriving them. AUR/OVC are HARDWARE here and get
 # recategorized to `system` at promote time (promote_glossary.py) — the enrichment
@@ -247,11 +251,11 @@ def parse_authoritative_terms():
     """Build the authoritative doc/seed term list (dedup by upper(term))."""
     by_key = {}
 
-    # 1) curated seed (src/deploy/glossary.md), authoritative + explicit category/aliases.
+    # 1) curated seed (agents/glossary.md), authoritative + explicit category/aliases.
     for term, expansion, category, aliases, definition in SEED_TERMS:
         by_key[term.upper()] = {
             "term": term, "expansion": expansion, "definition": definition,
-            "category": category, "aliases": list(aliases), "source_doc": "src/deploy/glossary.md",
+            "category": category, "aliases": list(aliases), "source_doc": "agents/glossary.md",
         }
 
     # 2) product-docs subsystem-glossary tables (adds ATPS/SRIS/VWI/OTA/DAP/VES/...).

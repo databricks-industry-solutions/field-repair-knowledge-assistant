@@ -20,7 +20,7 @@ What this script does (idempotent, host-gated — mirrors build_ka.py):
   Task 1 — create/update the 3-tool MAS:
     * Step 0: preflight.assert_target_host — refuse any workspace but the reference workspace.
     * find-by-display_name (GET /api/2.1/supervisor-agents) → update else create.
-    * Author the create-request from src/deploy/supervisor_config.json (human-editable
+    * Author the create-request from agents/supervisor_config.json (human-editable
       display_name + 3 tool descriptions + routing/synthesis instructions +
       examples[]).
     * Create-request wire shape is a SPIKE: the confirmed
@@ -47,9 +47,9 @@ What this script does (idempotent, host-gated — mirrors build_ka.py):
       to 05-SUPERVISOR-BUILD.md.
 
 Usage:
-    python3 src/deploy/build_supervisor.py --profile serverless-stable
-    python3 src/deploy/build_supervisor.py --profile serverless-stable --grants-only
-    python3 src/deploy/build_supervisor.py --profile serverless-stable --skip-smoke
+    python3 agents/build_supervisor.py --profile serverless-stable
+    python3 agents/build_supervisor.py --profile serverless-stable --grants-only
+    python3 agents/build_supervisor.py --profile serverless-stable --skip-smoke
 """
 
 import argparse
@@ -73,6 +73,10 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 REPO_ROOT = _HERE.parent
 sys.path.insert(0, str(_HERE))
+
+for _p in (_HERE.parent / "preflight", _HERE.parent / "ingest"):
+    if str(_p) not in sys.path:
+        sys.path.append(str(_p))
 from preflight import (  # noqa: E402
     assert_target_host,
     run_sql,
@@ -701,7 +705,7 @@ def write_build_doc(host, mid, endpoint, ep_state, task, accepted_body,
 
 **Generated:** {ts}
 **Workspace:** `{host}`
-**Built by:** `src/deploy/build_supervisor.py` (Phase 5, Plan 01)
+**Built by:** `agents/build_supervisor.py` (Phase 5, Plan 01)
 
 Single source of truth for the deployed MAS: id, endpoint, accepted create-request
 wire shape, invocation contract, the 3-tool grant record, and the A1 supervisor-LLM
@@ -792,8 +796,8 @@ Least-privilege grants issued for BOTH the demo principal AND the MAS SP
 ## Reproduce
 
 ```bash
-python3 src/deploy/build_supervisor.py --profile serverless-stable            # full build
-python3 src/deploy/build_supervisor.py --profile serverless-stable --grants-only  # re-issue/assert grants
+python3 agents/build_supervisor.py --profile serverless-stable            # full build
+python3 agents/build_supervisor.py --profile serverless-stable --grants-only  # re-issue/assert grants
 ```
 Idempotent: reuses the existing MAS by display_name (find-by-display_name).
 """

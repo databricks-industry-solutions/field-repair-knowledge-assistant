@@ -17,7 +17,7 @@ RETRIEVER spans. So groundedness is a custom
 
 Citation-resolution primitives (`tickets_in_corpus`, `_norm_ticket`, `TICKET_RE`,
 `run_sql`, `WAREHOUSE_ID`, `CATALOG`, `SCHEMA`) are REUSED verbatim from
-`src/deploy/test_supervisor.py` — never reimplemented.
+`agents/test_supervisor.py` — never reimplemented.
 
 Live corpus columns (confirmed at build time via information_schema on
 `the reference workspace`, 2026-07-30):

@@ -41,7 +41,7 @@ resources:
             the live KA — the drift that once cost 6.4 -> 1.2 avg citations.
           environment_key: serverless
           spark_python_task:
-            python_file: ../src/deploy/build_serving_agents.py
+            python_file: ../agents/build_serving_agents.py
             parameters:
               - --catalog
               - ${var.catalog}
@@ -60,7 +60,7 @@ resources:
             - task_key: serving_agents
           environment_key: serverless
           spark_python_task:
-            python_file: ../src/deploy/build_supervisor.py
+            python_file: ../agents/build_supervisor.py
             parameters:
               - --catalog
               - ${var.catalog}
@@ -82,7 +82,7 @@ resources:
     # --- Post-deploy step DAB cannot express -------------------------------
     # The front-door app needs `user_api_scopes: [serving.serving-endpoints]` so it
     # calls the MAS on behalf of the signed-in user (OBO). The App resource schema
-    # has no field for it, so src/deploy/frontdoor_deploy.py still owns that step. Kept as a
+    # has no field for it, so frontdoor/deploy.py still owns that step. Kept as a
     # job so `bundle run` can finish the job the bundle starts.
     rkb_frontdoor_authz:
       name: "[${bundle.target}] Field Repair front door — bind OBO scopes"
@@ -102,7 +102,7 @@ resources:
         - task_key: bind_obo
           environment_key: serverless
           spark_python_task:
-            python_file: ../src/deploy/frontdoor_deploy.py
+            python_file: ../frontdoor/deploy.py
             parameters:
               # Match the DAB apps resource name so a dev deploy binds its OWN app.
               - --app-name

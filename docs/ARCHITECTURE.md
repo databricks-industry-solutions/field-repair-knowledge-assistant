@@ -1,7 +1,7 @@
 # Architecture
 
 Architecture reference for the field-repair knowledge assistant. For what it is
-and why, see the **[README](README.md)**; to stand it up in your own workspace,
+and why, see the **[README](../README.md)**; to stand it up in your own workspace,
 follow **[DEPLOYMENT.md](DEPLOYMENT.md)**.
 
 This project is an **integration blueprint** — a working, deployable Databricks
@@ -17,7 +17,7 @@ maintenance & repair domain.
 > Supervisor (MAS)** are gone. What carried over: the Unity Catalog ingest +
 > `ai_query` enrichment path, the governed glossary, and the Genie space for
 > quantitative analytics. The v2-specific docs live under
-> [`v2/docs/`](v2/docs/ARCHITECTURE_V2.md).
+> [`v2/docs/`](../v2/docs/ARCHITECTURE_V2.md).
 
 ## System Overview
 
@@ -155,7 +155,7 @@ Lakebase, the glossary table, and Genie directly.
 
 ServiceNow tickets enter the lakehouse through a **Lakeflow Spark Declarative
 Pipeline** (`resources/pipeline_servicenow.yml`, SQL in
-`src/pipelines/servicenow_ingest/`). The `rkb_data_pipeline` job runs it in two tasks:
+`pipelines/servicenow_ingest/`). The `rkb_data_pipeline` job runs it in two tasks:
 
 1. **`land_servicenow`** writes ServiceNow `rd_task` exports (newline-delimited JSON,
    Table API shape with `sys_id` / `sys_updated_on`) into the
@@ -184,7 +184,7 @@ graph LR
     LB --> APP[v2 agent + app<br/>hybrid search]
 ```
 
-3. **`lakebase_sync`** (serverless notebook, `src/notebooks/lakebase_sync.py`) joins
+3. **`lakebase_sync`** (serverless notebook, `lakebase/lakebase_sync.py`) joins
    Lakeflow silver with the parsed location fields and the `ai_query` enrichment,
    compares each ticket's `content_hash` with what Lakebase already holds, embeds only
    new or changed tickets with `databricks-gte-large-en`, and upserts them into
@@ -274,11 +274,10 @@ abstractions:
 
 ## Directory Structure Rationale
 
-The repository holds the **upstream data pipeline** as a Databricks Asset Bundle at
-the root, and the **v2 custom agent** (the current serving architecture) under `v2/`.
-The bundle root (`databricks.yml`) includes `resources/*.yml`; the scripts and
-pipeline code the resources point at live under `src/`, `data_generation/`, `genie/`,
-and `frontdoor/`. Top-level layout:
+The repo is laid out by pipeline stage, in the order data moves through it. The bundle
+root (`databricks.yml`) includes `resources/*.yml`, and each resource points at the
+stage folder that does the work. The **v2 custom agent** (the current serving
+architecture) lives under `v2/`.
 
 ```
 .
@@ -286,49 +285,51 @@ and `frontdoor/`. Top-level layout:
 ├── resources/                DAB resources: uc.yml, genie.yml, apps.yml,
 │                             jobs_pipeline.yml, jobs_agents.yml,
 │                             pipeline_servicenow.yml (Lakeflow pipeline)
-├── src/
-│   ├── pipelines/            Lakeflow SDP SQL: servicenow_ingest/ (bronze Auto Loader,
-│   │                         silver AUTO CDC, site summary MV)
-│   ├── notebooks/            Serverless notebook tasks: enrich.py (gold enrichment) +
-│   │                         serving.py (enriched serving rows + analytics + verify) +
-│   │                         lakebase_sync.py (silver -> Lakebase fis_tasks);
-│   │                         enrich_recipe.py is the shared, I/O-free recipe they import.
-│   └── deploy/               Job-task scripts: parse_tickets, load_tables, build_glossary,
-│                             render_genie (renders the Genie template), and the test
-│                             harnesses + json/md inputs
-├── data/servicenow/          The ticket corpus markdown (parse_tickets reads it); ships
-│                             WITH the repo so the bundle is self-contained
-├── data_generation/          build_silver.py (silver layer) + generate.py (synthetic corpus)
-├── genie/                    genie_space.template.json (native DAB genie_spaces payload;
-│                             rendered per catalog/schema by src/deploy/render_genie.py)
+├── preflight/                Shared helpers every stage imports: env.py (catalog,
+│                             schema, warehouse targeting) + preflight.py (auth, SQL, checks)
+├── data/servicenow/          The ticket corpus markdown; ships WITH the repo so the
+│                             bundle is self-contained
+├── ingest/                   Bronze and silver: parse_tickets -> load_tables (rnd_tickets),
+│                             land_servicenow_exports (Volume landing), build_silver
+├── pipelines/                Lakeflow SDP SQL: servicenow_ingest/ (bronze Auto Loader,
+│                             silver AUTO CDC, site summary MV)
+├── enrich/                   Glossary + gold: build_glossary, the enrich.py and serving.py
+│                             notebooks (enrich_recipe.py is the shared, I/O-free recipe
+│                             they import), build_serving_table
+├── lakebase/                 lakebase_sync.py: silver + enrichment -> Lakebase fis_tasks
+├── agents/                   KA, Genie, and Supervisor builds + their test harnesses;
+│                             genie/ holds the Genie space template (rendered per
+│                             catalog/schema by render_genie.py)
+├── frontdoor/                The front-door Databricks App and its deploy script (deploy.py)
+├── synth/                    generate.py, the one-time synthetic-corpus authoring tool
 ├── v2/                       The current architecture (Lakebase + custom LangGraph agent):
-│   ├── agent/                fis_v2_agent.py — notebook: config, Lakebase connection,
-│   │                         embedding, the 3 tools, agent definition, test, MLflow logging
+│   ├── agent/                fis_v2_agent.py: config, Lakebase connection, embedding,
+│   │                         the 3 tools, agent definition, test, MLflow logging
 │   ├── app/                  app.py (Gradio chat app with all 3 tools) + app.yaml
 │   │                         (Databricks App config, Lakebase resource) + requirements.txt
-│   ├── tests/                fis_v2_tests.py — 8 suites, 35+ tests
+│   ├── tests/                fis_v2_tests.py: 8 suites, 35+ tests
 │   └── docs/                 plan_build.md, ARCHITECTURE_V2.md, DEPLOYMENT_V2.md
 ├── eval/                     MLflow GenAI evaluation harness (run_eval.py)
-├── specifications/           Component specs (01 ingest+enrich, 02 agents, 03 apps)
-└── DEPLOYMENT.md / README.md
+└── docs/                     ARCHITECTURE.md, DEPLOYMENT.md, design/ (ingest and enrich,
+                              agents, apps)
 ```
 
-- **`resources/` + `databricks.yml`** — the upstream bundle. Native resources (UC
-  schema/volume, the `genie_spaces` Genie space) plus the jobs that run the imperative
-  work DAB has no resource type for: the data pipeline (`jobs_pipeline.yml`) and the
-  glossary build.
-- **`src/`** — the pipeline job tasks: bronze ingest (`parse_tickets` → `load_tables`),
-  the governed `glossary` + `glossary_lookup` builder, and the serverless notebooks
-  that derive the gold enrichment (`enrich.py`, incremental via a `content_hash`
-  anti-join + `MERGE`) and the enriched serving rows (`serving.py`). `enrich_recipe.py`
-  is the single-source, I/O-free recipe (ai_query schema + acronym expansion) both import.
-- **`v2/`** — the current serving architecture. `agent/fis_v2_agent.py` sets up the
-  Lakebase table + indexes, defines the three tools and the LangGraph agent, and logs
-  it with MLflow; `app/` is the Gradio Databricks App that runs the agent in-process
-  behind a service principal; `tests/` is the test harness; `docs/` carries the
-  v2-specific architecture and deployment guides.
-- **`data_generation/`** — `build_silver.py` shapes bronze into `rd_tasks_silver`;
-  `generate.py` is the one-time synthetic-corpus authoring tool (its output is
-  pre-generated markdown that `parse_tickets` reads — not wired into the deploy job).
+- **`resources/` + `databricks.yml`**: the bundle. Native resources (UC schema and
+  volumes, the `genie_spaces` Genie space, the Lakeflow pipeline, the app) plus the jobs
+  that run the imperative work DAB has no resource type for: the data job
+  (`jobs_pipeline.yml`) and the agent builds (`jobs_agents.yml`).
+- **`preflight/`**: imported by every stage, so there is one place that decides which
+  catalog, schema, and warehouse a run targets.
+- **`ingest/` → `pipelines/` → `enrich/` → `lakebase/`**: the data path, in run order.
+  Bronze ingest (`parse_tickets` → `load_tables`), the Lakeflow pipeline over landed
+  ServiceNow exports, the governed glossary, the gold enrichment (`enrich.py`,
+  incremental via a `content_hash` anti-join + `MERGE`), the enriched serving rows
+  (`serving.py`), and the incremental sync into Lakebase.
+- **`agents/`**: everything that turns the serving table into answers (KA, Genie
+  space, Supervisor), next to the harnesses that test each one in isolation.
+- **`v2/`**: the current serving architecture. `agent/fis_v2_agent.py` defines the
+  three tools and the LangGraph agent and logs it with MLflow; `app/` is the Gradio
+  Databricks App that runs the agent behind a service principal; `tests/` is the test
+  harness; `docs/` carries the v2-specific guides.
 - **`eval/`** — the re-runnable MLflow GenAI evaluation harness (`run_eval.py`) that
   scores correctness, relevance, and citation-groundedness.

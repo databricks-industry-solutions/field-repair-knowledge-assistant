@@ -21,7 +21,7 @@
 #   job-wrapped — the whole data pipeline runs as one job (rkb_data_pipeline): bronze
 #                 ingest + silver + glossary as spark_python_task, then gold enrichment
 #                 and the serving table as serverless notebook_task notebooks
-#                 (src/notebooks/); plus the KA + MAS builds (no DAB resource type exists
+#                 (enrich/); plus the KA + MAS builds (no DAB resource type exists
 #                 for them; idempotent scripts run as job tasks). The job also lands
 #                 ServiceNow exports and triggers the Lakeflow pipeline. rd_tasks_serving
 #                 stays a plain Delta table built by the serving notebook, because the KA
@@ -29,7 +29,7 @@
 #
 # RETARGETING
 # -----------
-# The build scripts resolve catalog/schema/warehouse through src/deploy/env.py,
+# The build scripts resolve catalog/schema/warehouse through preflight/env.py,
 # which reads --catalog/--schema/--warehouse-id flags (passed by the job tasks) or
 # RKB_CATALOG / RKB_SCHEMA / RKB_WAREHOUSE_ID. Defaults are NEUTRAL — there is no
 # default warehouse — so nothing silently writes into someone else's catalog.

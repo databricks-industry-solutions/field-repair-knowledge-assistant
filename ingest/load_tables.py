@@ -22,7 +22,7 @@ Design:
     escaped by doubling ''; multi-line literals are fine.
 
 Usage:
-    python3 parse/load_tables.py --profile serverless-stable
+    python3 ingest/load_tables.py --profile serverless-stable
 """
 
 import argparse
@@ -39,6 +39,10 @@ from pathlib import Path
 # script's own dir; fall back to CWD so paths resolve there and locally.
 _HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 REPO_ROOT = _HERE.parent
+
+for _p in (_HERE.parent / "preflight", _HERE.parent / "ingest"):
+    if str(_p) not in sys.path:
+        sys.path.append(str(_p))
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 if str(_HERE) not in sys.path:

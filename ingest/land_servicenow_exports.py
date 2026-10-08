@@ -9,7 +9,7 @@ newline-delimited JSON file per source bucket into
 
 shaped like a ServiceNow Table API export of the `rd_task` table (`sys_id`,
 `sys_updated_on`, plus the ticket fields). The `servicenow_ingest` Lakeflow
-pipeline (src/pipelines/servicenow_ingest/) picks the files up incrementally with
+pipeline (pipelines/servicenow_ingest/) picks the files up incrementally with
 Auto Loader, so landing the same tickets twice is harmless: Auto CDC keeps the
 latest version per ticket.
 
@@ -17,7 +17,7 @@ Reuses parse_tickets.parse_all(), the same deterministic parser behind the
 rnd_tickets bronze table, so both ingestion paths see identical tickets.
 
 Usage:
-    python3 src/deploy/land_servicenow_exports.py --catalog main --schema troubleshooting_knowledge_agent
+    python3 ingest/land_servicenow_exports.py --catalog main --schema troubleshooting_knowledge_agent
 """
 
 import argparse

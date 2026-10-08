@@ -6,7 +6,7 @@ KA is script-built because DAB has no native resource type for Agent Bricks
 Knowledge Assistants.
 
 Genie is NOT built here — it is deployed declaratively as a native DAB
-`genie_spaces` resource (resources/genie.yml + genie/genie_space.json). This
+`genie_spaces` resource (resources/genie.yml + agents/genie/genie_space.json). This
 script only READS the DAB-deployed Genie space during --verify (by title), to
 confirm both engines resolve to the same physical rows:
   * KA    -> rd_tasks_serving.ka_content        (+ the same glossary Volume file)
@@ -16,9 +16,9 @@ The KA `file_col` is IMMUTABLE, so a fresh KA is created rather than repointing 
 existing one; any prior `rkb-knowledge-assistant` is left untouched.
 
 Usage:
-    python3 src/deploy/build_serving_agents.py --profile serverless-stable --dry-run
-    python3 src/deploy/build_serving_agents.py --profile serverless-stable
-    python3 src/deploy/build_serving_agents.py --profile serverless-stable --verify
+    python3 agents/build_serving_agents.py --profile serverless-stable --dry-run
+    python3 agents/build_serving_agents.py --profile serverless-stable
+    python3 agents/build_serving_agents.py --profile serverless-stable --verify
 """
 
 import argparse
@@ -33,6 +33,10 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 REPO = HERE.parent
 sys.path.insert(0, str(HERE))  # preflight.py + env.py + build_ka.py live here
+
+for _p in (HERE.parent / "preflight", HERE.parent / "ingest"):
+    if str(_p) not in sys.path:
+        sys.path.append(str(_p))
 
 from preflight import assert_target_host, run_sql  # noqa: E402
 # Reuse the PROVEN KA builder's helpers + copy, so the new KA differs only by table.
@@ -243,7 +247,7 @@ def build_ka(profile, dry_run=False):
 
 
 def attach_examples(ka_name, profile):
-    """Attach the labeled examples from src/deploy/ka_examples.json (idempotent).
+    """Attach the labeled examples from agents/ka_examples.json (idempotent).
 
     These matter more than they look: the instructions END with "See the labeled
     Examples for the expected answer shape per question type", so a KA with zero

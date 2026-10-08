@@ -7,12 +7,12 @@ table references would otherwise be pinned to one catalog/schema and could not f
 a `--var schema=` override or a dev deployment.
 
 This script substitutes `{{CATALOG}}` / `{{SCHEMA}}` in the tracked template
-`genie/genie_space.template.json` and writes the rendered artifact
-`genie/genie_space.json` (git-ignored) that `resources/genie.yml` points its
+`agents/genie/genie_space.template.json` and writes the rendered artifact
+`agents/genie/genie_space.json` (git-ignored) that `resources/genie.yml` points its
 `file_path` at. Run it BEFORE `databricks bundle deploy`, with the SAME
 catalog/schema you pass to the deploy:
 
-    python3 src/deploy/render_genie.py --catalog <CATALOG> --schema <SCHEMA>
+    python3 agents/render_genie.py --catalog <CATALOG> --schema <SCHEMA>
 
 Pure stdlib, no workspace/REST call — safe to run offline and in CI.
 """
@@ -22,9 +22,10 @@ import re
 import sys
 from pathlib import Path
 
-import env as _env  # src/deploy is on sys.path[0] when run as a script
+sys.path.append(str(Path(__file__).resolve().parents[1] / "preflight"))
+import env as _env  # noqa: E402
 
-GENIE_DIR = Path(__file__).resolve().parents[2] / "genie"
+GENIE_DIR = Path(__file__).resolve().parent / "genie"
 TEMPLATE = GENIE_DIR / "genie_space.template.json"
 RENDERED = GENIE_DIR / "genie_space.json"
 
