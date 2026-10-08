@@ -22,7 +22,7 @@ print(ep.status.hosts.host)  # Should show the endpoint host
 ### 1.2 Create Table & Indexes
 
 Run the bundle's data job (`rkb_data_pipeline`). Its `lakebase_sync` task
-(`src/notebooks/lakebase_sync.py`) reads the Lakeflow silver table
+(`lakebase/lakebase_sync.py`) reads the Lakeflow silver table
 `servicenow_rd_task_silver` plus enrichment, embeds new or changed tickets, and
 upserts them into Lakebase:
 

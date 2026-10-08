@@ -25,7 +25,7 @@ Verification is content-anchored, NOT prose-trusting:
     a returned term+definition+category => glossary_lookup fired. Recorded per row
     as the evidence source when spans are unavailable.
 
-Design (mirrors src/deploy/test_genie.py + test_ka.py — the repo convention, NOT
+Design (mirrors agents/test_genie.py + test_ka.py — the repo convention, NOT
 pytest, which is not installed):
   - Step 0 host-assertion gate (reuse preflight.assert_target_host) — refuse any
     workspace but the reference workspace (T-5-01).
@@ -38,9 +38,9 @@ pytest, which is not installed):
   - --only <SUP-id[,SUP-id]> filter; writes 05-SUPERVISOR-ROUTING.md.
 
 Usage:
-    python3 src/deploy/test_supervisor.py --profile serverless-stable
-    python3 src/deploy/test_supervisor.py --profile serverless-stable --only SUP-02,SUP-03
-    python3 src/deploy/test_supervisor.py --profile serverless-stable --only SUP-04
+    python3 agents/test_supervisor.py --profile serverless-stable
+    python3 agents/test_supervisor.py --profile serverless-stable --only SUP-02,SUP-03
+    python3 agents/test_supervisor.py --profile serverless-stable --only SUP-04
 """
 
 import argparse
@@ -54,12 +54,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # --- Reuse the Phase-1 host-safety gate + SQL helper ------------------------
-# preflight.py + env.py live in THIS dir (src/deploy); put it on the path so the
+# preflight.py + env.py live in preflight/ (added to the path below) so the
 # harness resolves them run from the repo root or elsewhere.
 _HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 REPO_ROOT = _HERE.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
+
+for _p in (_HERE.parent / "preflight", _HERE.parent / "ingest"):
+    if str(_p) not in sys.path:
+        sys.path.append(str(_p))
 from preflight import assert_target_host, run_sql, resolve_principal  # noqa: E402
 
 # --- deployment target: catalog/schema/warehouse (see env.py) ---
@@ -674,7 +678,7 @@ def write_report(host, endpoint, results, verdicts, extra_sections=None):
         f"**Workspace:** `{host}`",
         f"**MAS endpoint:** `{endpoint}` (reused warm — READY; NOT re-provisioned, "
         "per 05-01 carry-forward)",
-        f"**Harness:** `src/deploy/test_supervisor.py` (re-runnable; exits non-zero on any FAIL)",
+        f"**Harness:** `agents/test_supervisor.py` (re-runnable; exits non-zero on any FAIL)",
         "",
         "Routing is verified content-anchored, not prose-trusting. **Primary "
         "(trace-equivalent):** the MAS Responses-API body returns the fired tools "

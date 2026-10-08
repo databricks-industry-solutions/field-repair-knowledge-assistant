@@ -35,9 +35,9 @@ Design notes (the resolved spike facts from 04-KA-BUILD.md — read at runtime):
     terminology answers (KA-03/04).
 
 Usage:
-    python3 src/deploy/test_ka.py --profile serverless-stable
-    python3 src/deploy/test_ka.py --profile serverless-stable --only KA-01,KA-02
-    python3 src/deploy/test_ka.py --profile serverless-stable --no-report
+    python3 agents/test_ka.py --profile serverless-stable
+    python3 agents/test_ka.py --profile serverless-stable --only KA-01,KA-02
+    python3 agents/test_ka.py --profile serverless-stable --no-report
 """
 
 import argparse
@@ -48,13 +48,17 @@ import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 
-# preflight.py + env.py live in THIS dir (src/deploy). Put it on the path so the
+# preflight.py + env.py live in preflight/ (added to the path below) so the
 # harness resolves them whether run from the repo root or elsewhere, on serverless
 # or locally. (The old `from preflight.preflight import` package path is gone.)
 _HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 REPO_ROOT = _HERE.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
+
+for _p in (_HERE.parent / "preflight", _HERE.parent / "ingest"):
+    if str(_p) not in sys.path:
+        sys.path.append(str(_p))
 
 from preflight import (  # noqa: E402
     DEFAULT_PROFILE,
@@ -420,7 +424,7 @@ def build_report(host, verdicts):
         f"**KA endpoint:** `{KA_ENDPOINT}` (discovered by display name at runtime)",
         f"**Corpus table:** `{CORPUS}` (KA-indexed `ka_content`)",
         f"**Generated:** {ts}",
-        f"**Harness:** `src/deploy/test_ka.py` (re-runnable; exits non-zero on any FAIL)",
+        f"**Harness:** `agents/test_ka.py` (re-runnable; exits non-zero on any FAIL)",
         "",
         "This proves the KA STANDALONE: the deployed "
         "endpoint is queried directly and every citation is resolved against "

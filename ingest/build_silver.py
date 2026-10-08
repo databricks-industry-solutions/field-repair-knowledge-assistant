@@ -19,21 +19,21 @@ No Spark session — the whole build is SQL issued through `run_sql` (host-gated
 preflight `assert_target_host`), mirroring the other data-prep scripts.
 
 Usage:
-    python3 data_generation/build_silver.py --profile serverless-stable
-    python3 data_generation/build_silver.py --profile serverless-stable --verify
+    python3 ingest/build_silver.py --profile serverless-stable
+    python3 ingest/build_silver.py --profile serverless-stable --verify
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-# The shared helpers (preflight/env) live in src/deploy; put it on the path so
+# The shared helpers (preflight/env) live in preflight/; put it on the path so
 # this data-generation script resolves them the same way the deploy scripts do.
 # Serverless spark_python_task execs this file with no `__file__` and CWD = the
 # script's own dir; fall back to CWD so paths resolve there and locally.
 _HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 REPO_ROOT = _HERE.parent
-sys.path.insert(0, str(REPO_ROOT / "src" / "deploy"))
+sys.path.insert(0, str(REPO_ROOT / "preflight"))
 from preflight import assert_target_host, run_sql  # noqa: E402
 import env as _env  # noqa: E402
 
@@ -60,7 +60,7 @@ def build_silver_sql():
     return f"""
 CREATE OR REPLACE TABLE {SILVER}
 TBLPROPERTIES (delta.enableChangeDataFeed = true,
-  comment = 'Silver: rnd_tickets (real + synthetic) + content_hash + light location parse. Key=number; CDF on so the enrich pipeline can stream it. Built by data_generation/build_silver.py.')
+  comment = 'Silver: rnd_tickets (real + synthetic) + content_hash + light location parse. Key=number; CDF on so the enrich pipeline can stream it. Built by ingest/build_silver.py.')
 AS
 SELECT
   number,
@@ -120,7 +120,7 @@ def build_note_entries_sql():
     return f"""
 CREATE OR REPLACE TABLE {NOTE_ENTRIES}
 TBLPROPERTIES (delta.enableChangeDataFeed = true,
-  comment = 'One row per dated note-log entry per task (key=number+entry_seq). Built by data_generation/build_silver.py.')
+  comment = 'One row per dated note-log entry per task (key=number+entry_seq). Built by ingest/build_silver.py.')
 AS
 WITH exploded AS (
   SELECT number,

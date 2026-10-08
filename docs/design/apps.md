@@ -9,7 +9,7 @@ as a native `apps` bundle resource.
 
 ## Front-door chat
 
-`src/deploy/` + `resources/apps.yml` → app `rkb-frontdoor`
+`frontdoor/deploy.py` + `resources/apps.yml` → app `rkb-frontdoor`
 
 The engineer-facing surface. Chat box, cited answers, clickable ticket chips.
 

@@ -12,12 +12,12 @@ table**, `rd_tasks_serving`.
 `--var catalog=… --var schema=…`.
 
 **Build shape.** Bronze (`parse_tickets`/`load_tables`), the silver layer
-(`data_generation/build_silver.py`), and the SME-governed `glossary` are
+(`ingest/build_silver.py`), and the SME-governed `glossary` are
 SQL-over-REST job tasks. `build_silver.py` shapes bronze `rnd_tickets` (real +
 synthetic) into `rd_tasks_silver` (+ `rd_task_note_entries`) — the `content_hash`
 gate + location parse, CDF on. The **enrich chain — gold_enrichment → serving — is two
-serverless `notebook_task` notebooks** in the same job, `src/notebooks/enrich.py` and
-`src/notebooks/serving.py`; they read `rd_tasks_silver`, `glossary` and `rnd_tickets`.
+serverless `notebook_task` notebooks** in the same job, `enrich/enrich.py` and
+`enrich/serving.py`; they read `rd_tasks_silver`, `glossary` and `rnd_tickets`.
 `rd_tasks_gold_enrichment` is a Delta table built **incrementally**: a `content_hash`
 LEFT ANTI JOIN selects only new/changed tickets, `ai_query` runs over just those, and a
 `MERGE` upserts by `number` — so a re-run with no new tickets does zero LLM work.
@@ -35,7 +35,7 @@ cannot silently inflate the corpus.
 
 ## A. Bronze — parse the tickets
 
-`src/deploy/parse_tickets.py` → `src/deploy/load_tables.py`
+`ingest/parse_tickets.py` → `ingest/load_tables.py`
 
 The source ticket markdown ships with the repo under `data/servicenow/` (so the bundle
 is self-contained and the pipeline runs in any workspace); `parse_tickets.py` resolves
@@ -60,7 +60,7 @@ attach time with `missing required column '_metadata'`.
 
 ## B. Silver — typed and derived
 
-`data_generation/build_silver.py`
+`ingest/build_silver.py`
 
 Types the columns and derives what Genie needs to filter and sort: priority as an
 integer (1 = highest), `is_closed`, the location split into state / highway /
@@ -69,7 +69,7 @@ site / a canonical `site_key`, `duration_days`, and activity counts. Also comput
 
 ## C. Glossary — the controlled vocabulary
 
-`src/deploy/build_glossary.py`
+`enrich/build_glossary.py`
 
 Builds the governed glossary table. A term carries a `category`
 (`system` / `software` / `hardware` / `vendor` / `process`) and a `status`. Only
@@ -81,8 +81,8 @@ category `software`, so it must be matched in text columns, never with
 
 ## D. Gold — LLM enrichment
 
-`src/notebooks/enrich.py` (+ the shared, I/O-free recipe in
-`src/notebooks/enrich_recipe.py`)
+`enrich/enrich.py` (+ the shared, I/O-free recipe in
+`enrich/enrich_recipe.py`)
 
 `rd_tasks_gold_enrichment` is a Delta table built **incrementally**: a `content_hash`
 LEFT ANTI JOIN selects only silver rows not already enriched, `ai_query` runs over just
@@ -121,10 +121,10 @@ column twice would compute — and bill — it twice.
 
 ## E. The one serving table
 
-`src/notebooks/serving.py` builds `rd_tasks_serving` (plain Delta, CDF on) then the
+`enrich/serving.py` builds `rd_tasks_serving` (plain Delta, CDF on) then the
 curated Genie views `rd_tasks_serving_analytics` (+ the `rd_tasks_gold_analytics` compat
 alias) and runs `verify()` in-job. For a local re-check off a laptop,
-`src/deploy/build_serving_table.py --verify` runs the same serving-table assertions
+`enrich/build_serving_table.py --verify` runs the same serving-table assertions
 (and `--analytics-only` re-creates the views).
 
 The `serving` notebook joins silver ⋈ enrichment ⋈ ticket text into a single physical

@@ -34,8 +34,8 @@ Reuses the host-assertion gate + run_cli/run_sql pattern from preflight/prefligh
 so the build refuses to run against any workspace but the reference workspace.
 
 Usage:
-    python3 src/deploy/build_ka.py --profile serverless-stable
-    python3 src/deploy/build_ka.py --profile serverless-stable --skip-query   # build only
+    python3 agents/build_ka.py --profile serverless-stable
+    python3 agents/build_ka.py --profile serverless-stable --skip-query   # build only
 """
 
 import argparse
@@ -58,6 +58,10 @@ TARGET_HOST_FRAGMENT = os.environ.get("RKB_TARGET_HOST", "")
 # reimplements the preflight helpers, so only env needs to be importable).
 _HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 sys.path.insert(0, str(_HERE))
+
+for _p in (_HERE.parent / "preflight", _HERE.parent / "ingest"):
+    if str(_p) not in sys.path:
+        sys.path.append(str(_p))
 import env as _env  # noqa: E402
 
 DEMO_CATALOG = _env.CATALOG
@@ -618,7 +622,7 @@ def write_build_doc(host, ka_name, ka_id, ka_json, elapsed, ready,
 
 **Generated:** {ts}
 **Workspace:** `{host}`
-**Built by:** `src/deploy/build_ka.py` (Phase 4, Plan 01)
+**Built by:** `agents/build_ka.py` (Phase 4, Plan 01)
 
 This file records the live-only KA build facts that Plan 04-02 (isolation harness)
 and Phase 5 (Supervisor attach) consume: the KA identifiers, serving endpoint,
@@ -697,7 +701,7 @@ No `/api/2.0/tiles` call is made anywhere (Anti-Pattern avoided).
 ## Reproduce
 
 ```bash
-python3 src/deploy/build_ka.py --profile serverless-stable
+python3 agents/build_ka.py --profile serverless-stable
 ```
 Idempotent: reuses an existing KA/sources/Volume by name.
 """

@@ -79,9 +79,9 @@ serverless.
 
 | Doc | What's in it |
 |---|---|
-| **[ARCHITECTURE.md](ARCHITECTURE.md)** | System overview, colored logical + component diagrams, request data flow, key abstractions, directory layout |
-| **[DEPLOYMENT.md](DEPLOYMENT.md)** | Step-by-step deployment runbook: auth → data pipeline → agents → front door → tests → teardown |
-| **[specifications/](specifications/)** | Component specs: [01 ingest + enrich](specifications/01-ingest-and-enrich.md) · [02 agents](specifications/02-agents.md) · [03 apps](specifications/03-apps.md) |
+| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | System overview, colored logical + component diagrams, request data flow, key abstractions, directory layout |
+| **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** | Step-by-step deployment runbook: auth → data pipeline → agents → front door → tests → teardown |
+| **[docs/design/](docs/design/)** | Design notes: [ingest + enrich](docs/design/ingest-and-enrich.md) · [agents](docs/design/agents.md) · [apps](docs/design/apps.md) |
 
 **Built on Databricks:** [Agent Bricks](https://docs.databricks.com/aws/en/generative-ai/agent-bricks/) (Knowledge Assistant + Multi-Agent Supervisor) · [AI/BI Genie](https://docs.databricks.com/aws/en/genie/) · [`ai_query`](https://docs.databricks.com/aws/en/sql/language-manual/functions/ai_query) · [Databricks Apps](https://docs.databricks.com/aws/en/dev-tools/databricks-apps/) · [Unity Catalog](https://docs.databricks.com/aws/en/data-governance/unity-catalog/)
 

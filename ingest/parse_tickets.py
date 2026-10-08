@@ -23,7 +23,7 @@ Design:
   - Derived signals computed at parse time, pinned as_of_date = 2026-07-22.
 
 Usage:
-    python3 parse/parse_tickets.py     # runs local self-assertions, prints summary
+    python3 ingest/parse_tickets.py     # runs local self-assertions, prints summary
 
 Importable:
     from parse.parse_tickets import parse_all
@@ -46,13 +46,13 @@ from pathlib import Path
 # The ServiceNow ticket corpus ships WITH the repo (data/servicenow/) so the bundle
 # is self-contained: DAB syncs the whole bundle root to the workspace, so when this
 # runs as a serverless job task the files sit next to the code. Resolve the path
-# relative to THIS file (repo root = parents[2]); RKB_SAMPLE_DIR overrides it.
+# relative to THIS file (repo root = parent); RKB_SAMPLE_DIR overrides it.
 # Serverless spark_python_task execs the file WITHOUT defining `__file__`, and sets
 # the CWD to the script's own directory. So resolve the repo root from `__file__`
 # when available (local runs) and fall back to CWD (serverless job task).
 _HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 SAMPLE_DIR = Path(
-    os.environ.get("RKB_SAMPLE_DIR") or (_HERE.parents[1] / "data" / "servicenow")
+    os.environ.get("RKB_SAMPLE_DIR") or (_HERE.parent / "data" / "servicenow")
 )
 
 # Deterministic processing order → deterministic 0001017 dedup (first wins).

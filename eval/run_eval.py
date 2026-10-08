@@ -15,7 +15,7 @@ Scorers (each → its own distinct MLflow metric key — never one blended score
   - citation_groundedness
   - plausible_reasoning
 
-Design mirrors the repo harness convention (`src/deploy/test_supervisor.py`):
+Design mirrors the repo harness convention (`agents/test_supervisor.py`):
   - Step 0 host-safety gate (`preflight.assert_target_host`) — refuses any
     workspace but the reference workspace.
   - Warm-endpoint READY guard — exits non-zero rather than re-provisioning; a
@@ -24,7 +24,7 @@ Design mirrors the repo harness convention (`src/deploy/test_supervisor.py`):
   - Standalone, CLI-profile-based; `--profile` / `--only`; non-zero exit on failure.
 
 Leakage guard: the dataset `expected_facts` are CONCEPTUAL capability
-claims (CA → Controller Application is public in src/deploy/glossary.md); the private
+claims (CA → Controller Application is public in agents/glossary.md); the private
 `Prompts.md` answer key is read in-memory only and never written to disk.
 
 Usage:

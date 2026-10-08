@@ -8,7 +8,7 @@
 #
 # Triggered (not continuous) and serverless: the data job runs it right after
 # land_servicenow drops new exports, and Auto Loader only reads files it hasn't seen.
-# SQL sources live in src/pipelines/servicenow_ingest/ (one dataset per file).
+# SQL sources live in pipelines/servicenow_ingest/ (one dataset per file).
 
 resources:
   pipelines:
@@ -24,7 +24,7 @@ resources:
         landing_path: /Volumes/${var.catalog}/${var.schema}/servicenow_landing/rd_task/
       libraries:
         - glob:
-            include: ../src/pipelines/servicenow_ingest/**
+            include: ../pipelines/servicenow_ingest/**
       tags:
         project: rkb-knowledge-agent
         layer: lakeflow-ingest

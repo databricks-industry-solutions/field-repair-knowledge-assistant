@@ -4,7 +4,7 @@ Field Repair Knowledge Assistant — LOCAL Genie analytics views over rd_tasks_s
 
 The consolidated `rd_tasks_serving` table (the single surface BOTH engines read —
 KA indexes `ka_content`, Genie reads the structured columns) is built IN-JOB by the
-`serving` notebook (src/notebooks/serving.py), which also creates the analytics views and
+`serving` notebook (enrich/serving.py), which also creates the analytics views and
 runs verify(). This script is a LOCAL convenience CLI (run from a laptop with a warehouse):
 it is NOT a task in the rkb_data_pipeline job. It owns the two warehouse-layer operations:
 
@@ -20,9 +20,9 @@ it is NOT a task in the rkb_data_pipeline job. It owns the two warehouse-layer o
      citation file_path present, 1:1 grain, enrichment populated).
 
 Usage:
-    python3 src/deploy/build_serving_table.py --profile serverless-stable
-    python3 src/deploy/build_serving_table.py --profile serverless-stable --verify
-    python3 src/deploy/build_serving_table.py --profile serverless-stable --analytics-only
+    python3 enrich/build_serving_table.py --profile serverless-stable
+    python3 enrich/build_serving_table.py --profile serverless-stable --verify
+    python3 enrich/build_serving_table.py --profile serverless-stable --analytics-only
 """
 
 import argparse
@@ -36,6 +36,10 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 REPO = _HERE.parent
 sys.path.insert(0, str(_HERE))
+
+for _p in (_HERE.parent / "preflight", _HERE.parent / "ingest"):
+    if str(_p) not in sys.path:
+        sys.path.append(str(_p))
 from preflight import assert_target_host, run_sql  # noqa: E402
 
 # --- deployment target: catalog/schema/warehouse (see preflight/env.py) ---
@@ -293,7 +297,7 @@ def main():
         return
     # Default (and --analytics-only): (re)create the Genie analytics views over
     # rd_tasks_serving. The serving TABLE itself is built in-job by the `serving` notebook
-    # (src/notebooks/serving.py), not here — this is a local convenience path.
+    # (enrich/serving.py), not here — this is a local convenience path.
     print("[serving] (re)create the Genie analytics views over rd_tasks_serving...")
     _build_analytics_views(args.profile)
     if not args.analytics_only:

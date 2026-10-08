@@ -25,4 +25,4 @@ resources:
         durations, expert-finding, priority triage and site-pattern analysis.
       warehouse_id: ${var.warehouse_id}
       # Path is relative to this resources/ file, hence the ../
-      file_path: ../genie/genie_space.json
+      file_path: ../agents/genie/genie_space.json

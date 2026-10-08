@@ -17,7 +17,7 @@ not remove them.
 
 ## A. Knowledge Assistant
 
-`src/deploy/build_serving_agents.py`
+`agents/build_serving_agents.py`
 
 Two knowledge sources:
 
@@ -63,7 +63,7 @@ example parity for exactly this reason.
 
 ## B. Genie space
 
-`genie/genie_space.json` — a bundle `genie_spaces` resource.
+`agents/genie/genie_space.json` — a bundle `genie_spaces` resource.
 
 Carries the tuned text-to-SQL steering: column synonyms, 4 certified queries, and
 one filter rule that must never be violated:
@@ -86,12 +86,12 @@ a plain GET omits `serialized_space` entirely:
 databricks api get \
   "/api/2.0/genie/spaces/<id>?include_serialized_space=true" -p <profile> \
   | python3 -c "import json,sys; print(json.load(sys.stdin)['serialized_space'])" \
-  > genie/genie_space.json
+  > agents/genie/genie_space.json
 ```
 
 ## C. Supervisor
 
-`src/deploy/build_supervisor.py`
+`agents/build_supervisor.py`
 
 Registers three tools with sharp, non-overlapping descriptions:
 

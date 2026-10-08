@@ -32,9 +32,9 @@ Guardrails
 
 Usage
 -----
-    python src/deploy/frontdoor_deploy.py --profile serverless-stable --dry-run
-    python src/deploy/frontdoor_deploy.py --profile serverless-stable
-    python src/deploy/frontdoor_deploy.py --profile serverless-stable --print-url
+    python frontdoor/deploy.py --profile serverless-stable --dry-run
+    python frontdoor/deploy.py --profile serverless-stable
+    python frontdoor/deploy.py --profile serverless-stable --print-url
 """
 
 import argparse
@@ -54,14 +54,15 @@ SERVING_PERMISSION = "CAN_QUERY"                     # least privilege
 SERVING_SCOPE = "serving.serving-endpoints"          # 06-PREFLIGHT confirmed (HIGH)
 
 # Serverless spark_python_task execs this file with no `__file__` and CWD = the
-# script's own dir; fall back to CWD. The app SOURCE tree lives in frontdoor/ (repo
-# root), not next to this script under src/deploy/, so HERE points two levels up.
+# script's own dir; fall back to CWD. This script sits in the app's own source folder
+# (frontdoor/), so HERE is that folder.
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
-HERE = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "..", "frontdoor"))
-# preflight lives next to this script; put it on the path (in-job CWD is this dir, but
-# be explicit so a local run from the repo root also resolves it) for SDK auth helpers.
-if _SCRIPT_DIR not in sys.path:
-    sys.path.insert(0, _SCRIPT_DIR)
+HERE = _SCRIPT_DIR
+# preflight/ is a sibling folder; put it on the path (explicitly, so a local run from the
+# repo root also resolves it) for the SDK auth helpers.
+for _p in (_SCRIPT_DIR, os.path.join(_SCRIPT_DIR, "..", "preflight")):
+    if _p not in sys.path:
+        sys.path.insert(0, os.path.normpath(_p))
 import preflight as _pf  # noqa: E402  (SDK WorkspaceClient / api_do: ambient in-job)
 
 # Files/dirs shipped to the app. EVERYTHING else is excluded from the upload tree.

@@ -10,7 +10,7 @@
 #
 #   parse_tickets / load_tables  — stdlib markdown parse -> rnd_tickets (bronze),
 #                                  including the appended synthetic tickets.
-#   build_silver                 — data_generation/build_silver.py shapes bronze
+#   build_silver                 — ingest/build_silver.py shapes bronze
 #                                  into rd_tasks_silver (+ rd_task_note_entries):
 #                                  content_hash gate + location parse, CDF on. The
 #                                  silver layer is produced HERE, with the data, and
@@ -60,7 +60,7 @@ resources:
           description: Parse the sample/synthetic markdown tickets into rows.
           environment_key: serverless
           spark_python_task:
-            python_file: ../src/deploy/parse_tickets.py
+            python_file: ../ingest/parse_tickets.py
 
         - task_key: load_tables
           description: Load parsed rows into rnd_tickets + ticket_activity.
@@ -68,7 +68,7 @@ resources:
             - task_key: parse_tickets
           environment_key: serverless
           spark_python_task:
-            python_file: ../src/deploy/load_tables.py
+            python_file: ../ingest/load_tables.py
             parameters:
               - --catalog
               - ${var.catalog}
@@ -86,7 +86,7 @@ resources:
             - task_key: load_tables
           environment_key: serverless
           spark_python_task:
-            python_file: ../data_generation/build_silver.py
+            python_file: ../ingest/build_silver.py
             parameters:
               - --catalog
               - ${var.catalog}
@@ -103,7 +103,7 @@ resources:
             - task_key: load_tables
           environment_key: serverless
           spark_python_task:
-            python_file: ../src/deploy/build_glossary.py
+            python_file: ../enrich/build_glossary.py
             parameters:
               - --catalog
               - ${var.catalog}
@@ -124,7 +124,7 @@ resources:
             - task_key: build_silver
             - task_key: glossary
           notebook_task:
-            notebook_path: ../src/notebooks/enrich.py
+            notebook_path: ../enrich/enrich.py
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
@@ -137,7 +137,7 @@ resources:
           depends_on:
             - task_key: enrich
           notebook_task:
-            notebook_path: ../src/notebooks/serving.py
+            notebook_path: ../enrich/serving.py
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
@@ -149,7 +149,7 @@ resources:
           description: Write ServiceNow rd_task JSON exports into the servicenow_landing Volume.
           environment_key: serverless
           spark_python_task:
-            python_file: ../src/deploy/land_servicenow_exports.py
+            python_file: ../ingest/land_servicenow_exports.py
             parameters:
               - --catalog
               - ${var.catalog}
@@ -176,7 +176,7 @@ resources:
             - task_key: servicenow_lakeflow
             - task_key: enrich
           notebook_task:
-            notebook_path: ../src/notebooks/lakebase_sync.py
+            notebook_path: ../lakebase/lakebase_sync.py
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}

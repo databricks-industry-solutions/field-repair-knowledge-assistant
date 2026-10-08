@@ -17,7 +17,7 @@
 > Agent Bricks flow (Knowledge Assistant + Multi-Agent Supervisor + OBO front-door
 > app) is gone. For the architecture, see **[ARCHITECTURE.md](ARCHITECTURE.md)**;
 > the v2-specific companion docs live under
-> **[`v2/docs/`](v2/docs/DEPLOYMENT_V2.md)**.
+> **[`v2/docs/`](../v2/docs/DEPLOYMENT_V2.md)**.
 
 ---
 
@@ -112,8 +112,8 @@ and the Genie space. It stops short of the retired v1 agents/app resources.
 
 ```bash
 # Render the Genie space payload for your catalog/schema (DAB does not interpolate
-# inside the genie JSON). Writes git-ignored genie/genie_space.json from the template.
-python3 src/deploy/render_genie.py --catalog <CATALOG> --schema <SCHEMA>
+# inside the genie JSON). Writes git-ignored agents/genie/genie_space.json from the template.
+python3 agents/render_genie.py --catalog <CATALOG> --schema <SCHEMA>
 
 databricks bundle validate -t <TARGET>
 
@@ -172,7 +172,7 @@ rows into it.
 
 > [!WARNING]
 > **This stage is not yet scripted in the repo.** The table DDL below is the schema
-> from [`v2/docs/ARCHITECTURE_V2.md`](v2/docs/ARCHITECTURE_V2.md); the agent notebook
+> from [`v2/docs/ARCHITECTURE_V2.md`](../v2/docs/ARCHITECTURE_V2.md); the agent notebook
 > (`v2/agent/fis_v2_agent.py`) currently **assumes `fis_tasks` already exists and is
 > populated** — its connection cell only runs `SELECT COUNT(*)`. There is no
 > `CREATE TABLE` or embed-and-load step in the committed code. Until a loader is added,

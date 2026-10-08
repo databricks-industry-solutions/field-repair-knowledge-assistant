@@ -31,8 +31,8 @@ Known limitation (Phase-3): synthetic tickets have activity_count=1, so
 involvement/delay richness leans on the real tickets + note actors — expected.
 
 Usage:
-    python3 src/deploy/test_genie.py --profile serverless-stable
-    python3 src/deploy/test_genie.py --profile serverless-stable --only GEN-01,GEN-02,GEN-05
+    python3 agents/test_genie.py --profile serverless-stable
+    python3 agents/test_genie.py --profile serverless-stable --only GEN-01,GEN-02,GEN-05
 """
 
 import argparse
@@ -44,11 +44,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # --- Reuse the Phase 1 host-safety gate + CLI/SQL runners -------------------
-# preflight.py + env.py live in THIS dir (src/deploy); put it on the path so the
+# preflight.py + env.py live in preflight/ (added to the path below) so the
 # harness resolves them run from the repo root or elsewhere, on serverless or locally.
 _HERE = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
+
+for _p in (_HERE.parent / "preflight", _HERE.parent / "ingest"):
+    if str(_p) not in sys.path:
+        sys.path.append(str(_p))
 from preflight import assert_target_host, run_cli, run_sql  # noqa: E402
 
 # --- deployment target: catalog/schema/warehouse (see env.py) ---
